@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sid=$(jq -r '.session_id // empty' | cut -d- -f1); [ -n \"$sid\" ] && sprite list --prefix \"affordance-$sid\" 2>/dev/null | awk -v p=\"affordance-$sid\" 'index($1,p)==1{print $1}' | while read -r s; do sprite -s \"$s\" x -- bash -lc \"sprite-env services list | jq -r '.[].name' | xargs -r -n1 sprite-env services stop; sprite-env services list | jq -r '.[] | select(.http_port != null) | .name' | xargs -r -n1 sprite-env services delete\" 2>/dev/null; done; true",
+            "timeout": 120,
+            "statusMessage": "Stopping session sprite services"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 4 — The Model Layer</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span>Lesson 4 · <a href="0003-the-execution-lifecycle.html">← Lesson 3</a> · <a href="../reference/codebase-map.html">Map</a></span>
+  </nav>
+
+  <h1>The model layer</h1>
+  <p class="lede">How case types and steps are engineered: the type-level tricks behind annotation-free authoring, the erasure boundary, and the step-target machinery that every other subsystem consumes.</p>
+
+  <p>The <code>model/</code> module is the authoring API plus one crucial piece of shared machinery — step targeting. Lesson 1 showed what authoring <em>looks like</em>; this lesson explains how it is made to work, and then walks <code>target.ts</code>, which is the file the claim, <code>explain</code>, the affordance listing, and audit replay all stand on.</p>
+
+  <h2><span class="kicker">casetype.ts</span>Two declarations, and one honest <code>any</code></h2>
+
+  <p>A case type is a name, a state schema, and a list of steps — with loud construction-time validation (duplicate step names throw, because they would make affordance identity <code>(step × scope key)</code> ambiguous). The one piece of type machinery worth studying is how heterogeneous case types fit in one registry:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/model/casetype.ts</figcaption>
+<pre><span class="cm">/**
+ * A case type with its schema and actor generics erased — what heterogeneous
+ * registries (the engine's `caseTypes`) hold. `any` is deliberate: it is the
+ * only way a `CaseTypeDefinition&lt;PurchaseSchema, Ops&gt;` and a
+ * `CaseTypeDefinition&lt;LoanSchema, Servicer&gt;` fit one list; every use is
+ * re-anchored by the state schema validation the engine performs on load.
+ */</span>
+export type AnyCaseType = CaseTypeDefinition&lt;any, any&gt;</pre>
+  </figure>
+
+  <p>Note the shape of the argument: the <code>any</code> is not a shrug, it is an <em>existential</em> — and it is safe because nothing consumes an <code>AnyCaseType</code>'s state without first validating a stored document against that type's own schema. When reviewing changes, this is the standard to hold any new <code>any</code> to: is it re-anchored at every use, and does its comment say so?</p>
+
+  <h2><span class="kicker">step.ts / scope.ts</span>How annotation-free authoring works</h2>
+
+  <p>The reference app writes conditions like <code>requires: { purchaseOpen }</code> with no type annotations anywhere in the step call. Three mechanisms combine to make that inference work:</p>
+
+  <ol>
+    <li><strong>The state type comes from the schema value.</strong> <code>stepsOf(PurchaseState, …)</code> derives <code>TState</code> as <code>StandardSchemaV1.InferOutput&lt;S&gt;</code> — the same derivation <code>caseType</code> performs. Factory and case type are anchored to one declaration and cannot drift: the state a condition sees is definitionally the state the engine validates against.</li>
+    <li><strong>The actor type is named by a value-level marker.</strong> TypeScript has no partial type-argument inference — spelling <code>stepsOf&lt;…, PurchaseActor&gt;</code> would force spelling the schema's type too. So the actor type rides a phantom-typed value instead:</li>
+  </ol>
+
+  <figure class="code">
+    <figcaption>packages/core/src/model/step.ts</figcaption>
+<pre>export interface ActorMarker&lt;TActor&gt; {
+  readonly __actor?: TActor          <span class="cm">// nothing but the type</span>
+}
+
+const ACTOR_MARKER: ActorMarker&lt;never&gt; = Object.freeze({})
+
+<span class="cm">/** Name the actor type of a stepsOf factory: `stepsOf(PurchaseState, actor&lt;PurchaseActor&gt;())`. */</span>
+export const actor = &lt;TActor&gt;(): ActorMarker&lt;TActor&gt; =&gt; ACTOR_MARKER</pre>
+  </figure>
+
+  <ol start="3">
+    <li><strong>Overload ordering carries the scoped/unscoped split.</strong> <code>step()</code> declares the scoped overload first and discriminates on the presence of <code>scope</code>; a scoped step's element type anchors on <code>scope.select</code> alone, which is why <code>ctx.scope</code> arrives fully typed, with no <code>undefined</code> to narrow away.</li>
+  </ol>
+
+  <p>All of that richness then <em>collapses</em>. The scoped condition maps are erased to the guards module's shape with a single commented cast — sound because evaluation of a scoped guard always binds <code>scope</code>, which the scoped types require:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/model/scope.ts</figcaption>
+<pre><span class="cm">/**
+ * Erase a scoped condition map to the guards module's entry shape so the
+ * engine can hand a scoped step's guard to `evaluateGuard` unchanged. Sound
+ * because evaluation of a scoped guard always binds `scope` (which the
+ * scoped condition context requires).
+ */</span>
+export const eraseScopedConditionMap = (map) =&gt;
+  map as unknown as Readonly&lt;Record&lt;string, ConditionMapEntry&lt;…&gt;&gt;&gt; | undefined</pre>
+  </figure>
+
+  <p>This is the erasure idiom in full: <em>authoring types are precise, machine types are erased, and every cast between them is singular, commented, and justified by an invariant the runtime maintains</em>. There are exactly three such casts in the model layer — the handler, the scoped condition maps, and the registry's <code>AnyCaseType</code>.</p>
+
+  <h2><span class="kicker">target.ts</span>The machinery everyone stands on</h2>
+
+  <p>A <strong>step target</strong> is a step plus its scope binding, resolved against a given case state — the pair an affordance's identity names. The file's header states its design in two rules, and they are the lenient/loud pair made concrete:</p>
+
+  <ul>
+    <li><strong>A defective selector is a selection failure.</strong> A <code>scope.select</code> that throws over historical state (a totality bug) yields <code>{ targets: [], failure: { reason } }</code>. Each caller decides what its audience deserves: the listing renders a blocked <code>$scope</code> entry, a sweep skips the step, <code>resolveTarget</code> throws.</li>
+    <li><strong>A key integrity violation is loud everywhere.</strong> Duplicate or malformed scope keys corrupt affordance identity itself — the thing journal entries and refusals name — so <code>ScopeKeyError</code> propagates through <em>every</em> path. No caller may absorb it into "no targets":</li>
+  </ul>
+
+  <figure class="code">
+    <figcaption>packages/core/src/model/target.ts — selectTargets</figcaption>
+<pre>export const selectTargets = (step, state) =&gt; {
+  if (step.scope === null)
+    return { targets: [{ step, state, binding: null }], failure: null }
+  try {
+    return {
+      targets: selectScope(step, step.scope, state).map((binding) =&gt;
+        ({ step, state, binding })),
+      failure: null,
+    }
+  } catch (err) {
+    if (err instanceof ScopeKeyError) throw err   <span class="cm">// identity corruption: loud through both paths</span>
+    return {
+      targets: [],
+      failure: { reason: `scope selector threw: ${thrownMessage(err)}` },
+    }
+  }
+}</pre>
+  </figure>
+
+  <p>Addressing — "step X, element K, on this state" — is the second single implementation. <code>addressTarget</code> answers with the target <em>or</em> a failure that names its kind, and the kinds are a discriminated union, so filters can treat one differently without re-deriving how the address failed:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/model/target.ts</figcaption>
+<pre>export type TargetAddressFailure =
+  | { readonly kind: 'unknown-step';        readonly error: UnknownStepError }
+  | { readonly kind: 'defective-selector';  readonly reason: string
+      readonly error: ScopeKeyError }
+  | { readonly kind: 'unscoped-key' | 'missing-key' | 'unknown-key'
+      readonly error: ScopeKeyError }</pre>
+  </figure>
+
+  <p>Each failure <em>carries the error the loud filter would throw</em>, so the diagnosis — including helpful details like the currently-valid scope keys — is constructed exactly once and reads identically whether thrown at a caller or reported by a sweep. The filters over it:</p>
+
+  <div class="table-scroll">
+  <table>
+    <tr><th>Filter</th><th>Policy</th><th>Why</th></tr>
+    <tr><td><code>resolveTarget</code> (the claim, <code>explain</code>'s addressing)</td><td>Loud — throws <code>failure.error</code></td><td>An addressed caller named a case and a step and is owed an answer about those.</td></tr>
+    <tr><td>Audit replay (<code>replayGuard</code>)</td><td>Lenient — reports <code>unaddressable</code></td><td>A sweep over the journal; one drifted entry must not take down the audit of the rest.</td></tr>
+    <tr><td><code>explain</code>, one special case</td><td>Answers a <code>defective-selector</code></td><td>The listing published that exact link as a blocked entry, so the probe deserves an answer, not a throw.</td></tr>
+  </table>
+  </div>
+
+  <p>Finally, <code>evaluateTarget</code> is the single evaluation shared by <code>explain</code> and the claim — "so the enforcement moment and the explanation of it can never drift apart". Notice also that a <code>StepTarget</code> carries the state it was resolved against; a binding can never be evaluated against a different document than the one that produced it.</p>
+
+  <h3>The <code>$scope</code> synthetic condition</h3>
+
+  <p>How does a listing tell a client "this scoped step is broken on this case"? By reporting the selector failure <em>in the same vocabulary as everything else</em> — as a condition result, under a name no author can collide with:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/model/target.ts</figcaption>
+<pre><span class="cm">// `$`-prefixed so it can never collide with an author's condition names.
+// Declared by @affordance/contract — it reaches clients through
+// blocked[].unmet[].name, so it is wire vocabulary, and the wire owns it.</span>
+export { SCOPE_FAILURE_CONDITION }
+
+export const scopeFailureEvaluation = (asOf, failure): GuardEvaluation =&gt; ({
+  asOf,
+  possible: false,      <span class="cm">// nothing about the step is possible on this case</span>
+  permitted: true,      <span class="cm">// permits were never reachable; vacuously satisfied</span>
+  available: false,
+  conditions: [scopeConditionResult(failure)],
+})</pre>
+  </figure>
+
+  <p>Small detail, large principle: the constant lives in <code>@affordance/contract</code> because clients see it — the wire package owns wire vocabulary, and core re-exports it, not the other way around.</p>
+
+  <h2><span class="kicker">handler.ts</span>The commit-write seam</h2>
+
+  <p>One type from <code>handler.ts</code> completes the picture from Lesson 3. <code>ctx.onCommit</code> registers a <code>CommitWrite</code> — a callback that receives <em>the framework's own commit transaction</em>:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/model/handler.ts</figcaption>
+<pre><span class="cm">/**
+ * A write to run inside the framework's **commit** transaction, registered
+ * from a handler via `ctx.onCommit`. It receives the transaction handle
+ * the framework is committing Case State on, so app-table writes land
+ * atomically with the case row and the journal entry. This is the
+ * shared-transaction seam — the one point where app writes join the
+ * framework's transaction — and it avoids holding a transaction open across
+ * the handler's external calls.
+ */</span>
+export type CommitWrite = (tx: Queryable) =&gt; Promise&lt;void&gt;</pre>
+  </figure>
+
+  <p>This is how the app gets transactional atomicity with the framework <em>without</em> the framework holding a transaction across the handler. The handler runs free; only the writes it registered are replayed inside the commit. A <code>CommitWrite</code> that throws aborts the whole commit and the attempt is journaled as failed — the app's writes get the same all-or-nothing deal as the case row and the journal entry. <code>ctx.correlate</code> (Lesson 6) is just a <code>CommitWrite</code> in disguise.</p>
+
+  <h2><span class="kicker">Check yourself</span>Retrieval practice</h2>
+  <div id="quiz"></div>
+
+  <h2><span class="kicker">Next</span>Where this goes</h2>
+  <p>Lesson 5 goes below everything: the <code>store/</code> module — the Postgres schema, bootstrap, the loud case resolution the engine and lifecycle both call, and the <code>Queryable</code> seam that lets one SQL function serve pools, clients, and transactions alike.</p>
+
+  <footer class="lesson-footer">
+    <p><strong>Primary source:</strong> the header comment of <code>packages/core/src/model/target.ts</code> — the clearest single statement of the one-implementation-plus-filters idiom in the codebase — then <code>step.ts</code> for the authoring machinery.</p>
+    <p>Anything unclear, or an excerpt you want expanded to its full file? Ask the teaching agent.</p>
+  </footer>
+</main>
+
+<script>
+/* Quiz widget shared by all lessons.
+ *
+ * Usage in a lesson:
+ *   <div id="quiz"></div>
+ *   <script src="../assets/quiz.js">< /script>
+ *   <script>
+ *     renderQuiz(document.getElementById('quiz'), [
+ *       { q: 'Question text?',
+ *         choices: ['A', 'B', 'C', 'D'],
+ *         answer: 2,                       // index into choices
+ *         explain: 'Shown after answering.' },
+ *     ])
+ *   < /script>
+ *
+ * Feedback is immediate: click a choice, it locks, correct/wrong is shown,
+ * and the explanation appears. No score, no persistence — retrieval practice.
+ */
+'use strict'
+
+function renderQuiz(container, questions) {
+  container.classList.add('quiz')
+  questions.forEach(function (question, index) {
+    const box = document.createElement('div')
+    box.className = 'quiz-question'
+
+    const heading = document.createElement('h4')
+    heading.textContent = (index + 1) + '. ' + question.q
+    box.appendChild(heading)
+
+    const buttons = []
+    question.choices.forEach(function (choice, choiceIndex) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'quiz-choice'
+      button.textContent = choice
+      button.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.disabled = true })
+        buttons[question.answer].classList.add('is-correct')
+        if (choiceIndex !== question.answer) button.classList.add('is-wrong')
+        if (question.explain) {
+          const explain = document.createElement('p')
+          explain.className = 'quiz-explain'
+          explain.textContent = question.explain
+          box.appendChild(explain)
+        }
+      })
+      buttons.push(button)
+      box.appendChild(button)
+    })
+
+    container.appendChild(box)
+  })
+}
+</script>
+<script>
+renderQuiz(document.getElementById('quiz'), [
+  {
+    q: 'Why is AnyCaseType allowed to use `any`?',
+    choices: [
+      'Every use is re-anchored by schema validation on load',
+      'The registry is internal, so type safety is optional',
+      'TypeScript cannot express readonly heterogeneous maps',
+      'It predates the generics and was never migrated over',
+    ],
+    answer: 0,
+    explain: 'It is a deliberate existential: heterogeneous case types must fit one list, and nothing consumes an AnyCaseType’s state without validating the stored document against that type’s own schema first.',
+  },
+  {
+    q: 'Why does stepsOf take actor&lt;T&gt;() as a value instead of a type argument?',
+    choices: [
+      'A value survives into the compiled JavaScript output',
+      'TypeScript has no partial type-argument inference',
+      'The actor type must be checked at runtime as well',
+      'Overloads cannot carry more than one type parameter',
+    ],
+    answer: 1,
+    explain: 'Spelling TActor explicitly would force spelling the schema’s type too. The phantom-typed marker names just the actor type while the schema type keeps being inferred from the value.',
+  },
+  {
+    q: 'A scope selector throws over an old case document. What do consumers see?',
+    choices: [
+      'Every consumer gets a thrown ScopeKeyError',
+      'The step silently vanishes from every surface',
+      'A selection failure, filtered per consumer',
+      'The case is marked unreadable and skipped',
+    ],
+    answer: 2,
+    explain: 'selectTargets reports { targets: [], failure } — the listing renders a blocked $scope entry, sweeps skip the step, and resolveTarget throws. Each filter decides for its audience.',
+  },
+  {
+    q: 'Which failure refuses to be lenient on any path?',
+    choices: [
+      'A scope key that matches no selected element',
+      'A selector returning a non-array over old state',
+      'A step name the case type never declared',
+      'Duplicate scope keys within one selection',
+    ],
+    answer: 3,
+    explain: 'Duplicate or malformed keys corrupt affordance identity itself — the (step × scope key) that journal entries and refusals name — so ScopeKeyError propagates through both the loud and lenient paths.',
+  },
+  {
+    q: 'What does ctx.onCommit actually buy the app?',
+    choices: [
+      'App writes commit atomically with case state and journal',
+      'App writes run before the guard is re-evaluated',
+      'App writes retry independently of the handler',
+      'App writes execute on a dedicated connection pool',
+    ],
+    answer: 0,
+    explain: 'Registered writes are replayed inside the framework’s commit transaction — atomicity with the case row and journal entry, without holding a transaction open across the handler’s external calls.',
+  },
+])
+</script>
+</body>
+</html>

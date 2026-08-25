@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+.DS_Store
+
+# Teaching workspace (see .teach/MISSION.md)
+.teach/
+.playwright-mcp/

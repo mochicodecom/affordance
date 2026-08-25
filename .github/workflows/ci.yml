@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: affordance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d affordance"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    # Tests create and use their own affordance_test database on the
+    # service; the default TEST_DATABASE_URL already points there.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # `biome ci` is check-only and emits GitHub annotations on PRs.
+      - run: pnpm exec biome ci --error-on-warnings .
+      - run: pnpm typecheck
+      # The dev console serves ui/dist and refuses to pretend otherwise —
+      # the serving test needs a real build, exactly like a deployment.
+      - run: pnpm --filter @affordance/reference-app ui:build
+      - run: pnpm test

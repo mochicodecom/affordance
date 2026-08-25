@@ -1,0 +1,27 @@
+{
+  "name": "affordance",
+  "private": true,
+  "author": "Mochicode LLC (https://mochicode.com)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.8",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.0"
+  },
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "lint": "biome check --error-on-warnings .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "vitest run",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:down": "docker compose down"
+  }
+}

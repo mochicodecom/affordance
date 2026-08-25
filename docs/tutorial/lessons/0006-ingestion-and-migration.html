@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 6 — Ingestion and Migration</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span>Lesson 6 · <a href="0005-the-store-and-the-pure-core.html">← Lesson 5</a> · <a href="../reference/codebase-map.html">Map</a></span>
+  </nav>
+
+  <h1>Ingestion and migration</h1>
+  <p class="lede">The two subsystems that run steps with nobody at the keyboard — both built as filters over Lesson 3's system runner, each with a discipline against silent loss.</p>
+
+  <h2><span class="kicker">correlation.ts</span>The mapping, written in the same commit</h2>
+
+  <p>An e-sign provider knows envelope <code>env_9f2</code>; it does not know case <code>4b0e…</code> or that the envelope is buyer #7's agreement. The correlation registry holds that mapping, and the load-bearing decision is <em>when</em> it gets written:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/ingestion/correlation.ts</figcaption>
+<pre><span class="cm">/**
+ * The registration is written by the handler that *initiates* the external
+ * interaction, in the same commit that records having initiated it —
+ * `ctx.correlate(...)` rides the commit seam, so a case can never be
+ * left having sent an envelope it cannot route the answer for.
+ */</span></pre>
+  </figure>
+
+  <p>Recall from Lesson 4 that <code>ctx.correlate</code> is just an <code>onCommit</code> write. The consequence is an invariant no code has to check: "sent but unroutable" is unrepresentable, because the sending's state write and the mapping are one transaction. Storage-wise, registration upserts on <code>(system, externalId)</code> — a retried handler attempt registering the same envelope again "is not an error, it is the same fact."</p>
+
+  <h2><span class="kicker">ingest.ts</span>Dedup, correlate, execute — and never a quiet drop</h2>
+
+  <p>The module header states the contract in one paragraph, worth reading verbatim:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/ingestion/ingest.ts</figcaption>
+<pre><span class="cm">/**
+ * What is *not* allowed is a quiet drop. An event nothing can route, an event
+ * whose step the guard refuses, an event whose case is busy — each lands in
+ * the same table with a status and a reason, which is the dead-letter
+ * surface. "The webhook definitely arrived, so why is the case still waiting"
+ * is a question this table answers without anyone reading a log file.
+ */</span></pre>
+  </figure>
+
+  <h3>Dedup: a unique insert, not a lookup</h3>
+
+  <p>Providers deliver at-least-once, so dedup is the front door — and it is a <em>unique insert</em>, "not a lookup-then-insert, which races itself":</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/ingestion/ingest.ts — claimDelivery</figcaption>
+<pre>insert into affordance.ingested_events (…, idempotency_key, status, event)
+values (…, 'pending', …)
+on conflict (idempotency_key) do nothing
+returning *</pre>
+  </figure>
+
+  <p>Exactly one of N concurrent deliveries inserts; the losers read what the winner wrote and answer <code>duplicate</code>. The idempotency key has a considered structure: its fixed prefix is <code>(system, externalId, type)</code> — the same notification about the same envelope produces the same key however often it is delivered — and the tail is the provider's own delivery id, or a payload hash when the provider cannot say which delivery this is ("content-addressed dedup, which is the best anyone can do").</p>
+
+  <p>The subtle case is a <em>redelivery of a dead-lettered event</em>. Should the provider's retry get another chance? The answer is a total table over the reason codes — total on purpose, "so a new code cannot be added without deciding its reopen policy":</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/ingestion/ingest.ts</figcaption>
+<pre>export const REOPENS_ON_REDELIVERY: Record&lt;DeadLetterReason, boolean&gt; = {
+  unrouted: false,
+  'no-step': false,
+  'step-not-available': false,
+  'case-busy': true,            <span class="cm">// another delivery could genuinely cure this</span>
+  'invalid-input': false,
+  'not-found': false,
+  'bad-request': false,
+  'execution-failed': true,     <span class="cm">// the handler crashed; a retry may land</span>
+  'invalid-state': false,
+}</pre>
+  </figure>
+
+  <p>Transient outcomes reopen; deterministic ones stay dead — "it will be refused the same way on every retry, so reopening it would only invite endless redelivery."</p>
+
+  <h3>Execute: no privileged path</h3>
+
+  <p>A routed event executes through <code>runAsSystem</code> — the ordinary claim → run → commit, with the external system as the journaled actor. Ingestion has no back door; the guard still decides, transactionally. What ingestion adds is the <em>one</em> place in the codebase that asks whether a settled run was a refusal:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/ingestion/ingest.ts</figcaption>
+<pre><span class="cm">/**
+ * Project a settled system run onto the reason an operator needs to see —
+ * the one place that asks whether what settled was a Refusal.
+ */</span>
+export const classifyDeadLetter = (ran: SystemSettled): [DeadLetterReason, string] =&gt;
+  isAffordanceError(ran.error)
+    ? [ran.error.code, ran.error.message]     <span class="cm">// a Refusal names its own kind</span>
+    : ['execution-failed', ran.error.message] <span class="cm">// a bug is not a Refusal</span></pre>
+  </figure>
+
+  <p>Notice what this means for the closed code set: the dead-letter reasons are not a parallel taxonomy that could drift — apart from ingestion's own two (<code>unrouted</code>, <code>no-step</code>), every reason <em>is</em> the <code>AffordanceErrorCode</code> the refused execution already declared at its raise site, projected. A new refusal class can never misroute here, because nothing here switches on classes.</p>
+
+  <p>One more habit worth stealing: the local <code>deadLetter</code> helper both settles the row <em>and</em> builds the caller's result from the same fields — "one helper, so a branch cannot record one thing and report another."</p>
+
+  <h2><span class="kicker">migrate.ts</span>The escape hatch that is not a second way of working</h2>
+
+  <p>Float handles additive change; a genuine restructure (rename, split, scalar-to-collection) defeats any fallback expression. The migration module's two properties keep it an escape hatch rather than a parallel mechanism:</p>
+
+  <ol>
+    <li><strong>A migration is an execution.</strong> The transform runs as a synthetic step named <code>migrate:&lt;name&gt;</code> through the ordinary lifecycle — case row lock, claim, schema validation, journal entry all apply unchanged. An auditor asking "why did this case's shape change in March" gets the same kind of answer as for anything else.</li>
+    <li><strong>The journal is the marker.</strong> A case has been migrated iff it carries a completed <code>migrate:&lt;name&gt;</code> entry. No bookkeeping table, no flag in app state — so re-running is a no-op <em>by construction</em>, and an interrupted run resumes where it stopped.</li>
+  </ol>
+
+  <p>The synthetic step is three lines, and both of its choices are argued:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/migration/migrate.ts</figcaption>
+<pre><span class="cm">/**
+ * It declares no conditions: a migration is not a business affordance and
+ * must not be blockable by one — it is the deliberate exception float
+ * reserves. `maxAttempts: 1` because a transform that throws is a defect
+ * in the transform, and retrying it just throws again.
+ */</span>
+const migrationStep = (name, transform) =&gt;
+  step({
+    name: migrationStepName(name),        <span class="cm">// `migrate:&lt;name&gt;`</span>
+    retry: { maxAttempts: 1 },
+    handler: async (state) =&gt; transform(state),
+  })</pre>
+  </figure>
+
+  <p>The step is spliced into a <em>view</em> of the case type for the duration of the run (the real definition is untouched, so no client ever sees it as an affordance), and handed to <code>runAsSystem</code> via its <code>definition</code> override — the option that exists "so no sweep has to smuggle a definition in by rewriting <code>caseTypeFor</code>".</p>
+
+  <h3>The sweep</h3>
+
+  <p>Candidate selection is one SQL predicate — the marker check pushed into the database, which is also what makes two concurrent runs of the same migration safe (a case migrated by the other instance simply is not returned):</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/migration/migrate.ts — findCandidates</figcaption>
+<pre>`c.case_type = $1`,
+<span class="cm">// The marker: a completed Execution of this migration on this case. The
+// journal is the record of what has happened, so it is also the record of
+// what has already been migrated — no bookkeeping table, no state flag.</span>
+`not exists (
+   select 1 from affordance.journal j
+   where j.case_id = c.id and j.step = $2 and j.entry = 'completed'
+ )`</pre>
+  </figure>
+
+  <p>Per case, the sweep is a textbook filter over the system runner's total outcome: a commit advances the case; a settled run — a held claim, a throwing transform, a result its schema rejects — is reported as a failure and <em>no marker is written</em>, so the next run picks the case up again. Failures never stop the run.</p>
+
+  <p>Two smaller decisions complete the picture. A case the transform leaves identical is <em>still journaled</em> (and so still marked) — "'this migration considered this case and had nothing to do' is a fact worth being able to prove." And <code>dryRun</code> needs no claim, no lock, and no write, because the transform is pure — it reads state through the <em>lenient</em> resolver (<code>resolveStoredState</code>, Lesson 5) and reports the would-be deltas, leaving no marker so the real run still has every case to do.</p>
+
+  <h2><span class="kicker">Check yourself</span>Retrieval practice</h2>
+  <div id="quiz"></div>
+
+  <h2><span class="kicker">Next</span>Where this goes</h2>
+  <p>Lesson 7 crosses the package boundary: <code>@affordance/http</code> — the routes, the contract serializers, and the audience filter that decides how much of all this ever leaves the process.</p>
+
+  <footer class="lesson-footer">
+    <p><strong>Primary source:</strong> the module headers of <code>packages/core/src/ingestion/ingest.ts</code> and <code>packages/core/src/migration/migrate.ts</code> — each is a complete statement of its subsystem's contract in under thirty lines.</p>
+    <p>Anything unclear, or an excerpt you want expanded to its full file? Ask the teaching agent.</p>
+  </footer>
+</main>
+
+<script>
+/* Quiz widget shared by all lessons.
+ *
+ * Usage in a lesson:
+ *   <div id="quiz"></div>
+ *   <script src="../assets/quiz.js">< /script>
+ *   <script>
+ *     renderQuiz(document.getElementById('quiz'), [
+ *       { q: 'Question text?',
+ *         choices: ['A', 'B', 'C', 'D'],
+ *         answer: 2,                       // index into choices
+ *         explain: 'Shown after answering.' },
+ *     ])
+ *   < /script>
+ *
+ * Feedback is immediate: click a choice, it locks, correct/wrong is shown,
+ * and the explanation appears. No score, no persistence — retrieval practice.
+ */
+'use strict'
+
+function renderQuiz(container, questions) {
+  container.classList.add('quiz')
+  questions.forEach(function (question, index) {
+    const box = document.createElement('div')
+    box.className = 'quiz-question'
+
+    const heading = document.createElement('h4')
+    heading.textContent = (index + 1) + '. ' + question.q
+    box.appendChild(heading)
+
+    const buttons = []
+    question.choices.forEach(function (choice, choiceIndex) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'quiz-choice'
+      button.textContent = choice
+      button.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.disabled = true })
+        buttons[question.answer].classList.add('is-correct')
+        if (choiceIndex !== question.answer) button.classList.add('is-wrong')
+        if (question.explain) {
+          const explain = document.createElement('p')
+          explain.className = 'quiz-explain'
+          explain.textContent = question.explain
+          box.appendChild(explain)
+        }
+      })
+      buttons.push(button)
+      box.appendChild(button)
+    })
+
+    container.appendChild(box)
+  })
+}
+</script>
+<script>
+renderQuiz(document.getElementById('quiz'), [
+  {
+    q: 'Why is dedup an insert with on-conflict rather than a lookup first?',
+    choices: [
+      'A lookup-then-insert races against itself',
+      'Inserts are cheaper than indexed lookups',
+      'The events table has no readable index',
+      'Lookups cannot see uncommitted deliveries',
+    ],
+    answer: 0,
+    explain: 'Two concurrent deliveries can both pass a lookup before either inserts. The unique insert makes exactly one of N deliveries the winner as a database fact.',
+  },
+  {
+    q: 'Why can a sent envelope never be unroutable when its webhook returns?',
+    choices: [
+      'The provider is required to echo the case id',
+      'Ingestion falls back to matching by payload',
+      'Unrouted events are retried until they route',
+      'The correlation rides the initiating commit',
+    ],
+    answer: 3,
+    explain: 'ctx.correlate is an onCommit write: the state change recording "interaction started" and the routing entry are one transaction, so neither can exist without the other.',
+  },
+  {
+    q: 'Where does the set of dead-letter reasons come from?',
+    choices: [
+      'A mapping table ingestion maintains per error class',
+      'The refusal codes themselves, plus two ingestion-own',
+      'Free-form strings taken from each error message',
+      'HTTP status codes translated back into names',
+    ],
+    answer: 1,
+    explain: 'Apart from unrouted and no-step, every reason is the AffordanceErrorCode the refused execution declared at its raise site — projected, never re-derived from classes, so a new refusal cannot misroute.',
+  },
+  {
+    q: 'What makes re-running a migration a no-op?',
+    choices: [
+      'A version flag the transform writes into state',
+      'The completed migrate:&lt;name&gt; journal entry',
+      'A bookkeeping table of migrated case ids',
+      'A checksum comparison of state documents',
+    ],
+    answer: 1,
+    explain: 'The journal is the marker: candidates are cases with no completed migrate:<name> entry, checked by the database on every batch. No residue in app state, and interrupted runs resume for free.',
+  },
+  {
+    q: 'Why is an unchanged case still journaled by a migration run?',
+    choices: [
+      'The lifecycle cannot commit without a delta',
+      'Deleting the entry would break the audit chain',
+      '"Considered, nothing to do" is worth proving',
+      'The marker doubles as the case’s version stamp',
+    ],
+    answer: 2,
+    explain: 'The completed entry with an empty delta records that the migration examined this case — and it doubles as the marker that keeps the case out of the next run.',
+  },
+])
+</script>
+</body>
+</html>

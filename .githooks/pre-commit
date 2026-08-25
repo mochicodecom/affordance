@@ -1,0 +1,9 @@
+#!/bin/sh
+# Refuse the commit unless every staged file passes Biome (format + lint).
+# Fix-ups are one command away: `pnpm lint:fix`, then re-stage.
+pnpm exec biome check --staged --error-on-warnings --no-errors-on-unmatched || {
+  echo ''
+  echo 'Commit blocked: Biome found problems in staged files.'
+  echo 'Run `pnpm lint:fix`, review, re-stage, and commit again.'
+  exit 1
+}

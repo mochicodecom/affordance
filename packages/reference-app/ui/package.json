@@ -1,0 +1,31 @@
+{
+  "name": "@affordance/reference-app-ui",
+  "private": true,
+  "version": "0.0.0",
+  "author": "Mochicode LLC (https://mochicode.com)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mantine/core": "^8.3.0",
+    "@mantine/hooks": "^8.3.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@affordance/contract": "file:../../contract",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "postcss": "^8.5.0",
+    "postcss-preset-mantine": "^1.18.0",
+    "postcss-simple-vars": "^7.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^8.2.1"
+  }
+}

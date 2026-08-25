@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — Codebase Map</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span><a href="../lessons/0001-the-shape-of-the-implementation.html">Lesson 1</a></span>
+  </nav>
+
+  <h1>Codebase map</h1>
+  <p class="lede">Where everything lives, and the idioms that repeat. Vocabulary is in <code>CONTEXT.md</code>; rationale is in <code>docs/architecture.md</code>.</p>
+
+  <h2>Packages</h2>
+  <div class="table-scroll">
+  <table>
+    <tr><th>Package</th><th>Role</th><th>Depends on</th></tr>
+    <tr><td><code>@affordance/core</code></td><td>The engine — everything the framework does. A library embedded in the app; Postgres is a hard dependency.</td><td>—</td></tr>
+    <tr><td><code>@affordance/http</code></td><td>The adapter serving the <code>affordance/v1</code> wire contract: routes, serializers, visibility. Sees the engine as a port.</td><td>core, contract</td></tr>
+    <tr><td><code>@affordance/contract</code></td><td>Wire-format types only — what a client reads payloads against. No engine code.</td><td>—</td></tr>
+    <tr><td><code>@affordance/testkit</code></td><td>Shared Postgres test setup (database URL, global setup). Dev-only.</td><td>—</td></tr>
+    <tr><td><code>reference-app</code></td><td>The house-purchase demo: case type, steps, mock providers, Hono app, React console (<code>ui/</code>).</td><td>core, http, contract</td></tr>
+  </table>
+  </div>
+
+  <h2>Inside <code>packages/core/src</code></h2>
+  <div class="table-scroll">
+  <table>
+    <tr><th>Module</th><th>Owns</th><th>Key files</th></tr>
+    <tr><td><code>model/</code></td><td>The authoring API: case types, step definitions, scope fan-out, retry policy, input validation.</td><td><code>step.ts</code> (authoring + erasure), <code>casetype.ts</code>, <code>target.ts</code> (<code>selectTargets</code>, <code>addressTarget</code>, <code>resolveTarget</code>), <code>handler.ts</code>, <code>scope.ts</code></td></tr>
+    <tr><td><code>guards/</code></td><td>The guard algebra and its single walk; evaluation.</td><td><code>guard.ts</code> (<code>guardEntries</code> — the only place that knows the shape), <code>evaluate.ts</code>, <code>condition.ts</code>, <code>time.ts</code></td></tr>
+    <tr><td><code>execution/</code></td><td>The lifecycle: claim → run → commit; retries, heartbeat, takeover; the journal; the system runner.</td><td><code>execute.ts</code> (<code>runLifecycle</code>, <code>executeStep</code>, <code>runAsSystem</code>), <code>port.ts</code> (<code>LifecyclePort</code> + pg binding), <code>journal.ts</code>, <code>delta.ts</code>, <code>replay.ts</code>, <code>timers.ts</code></td></tr>
+    <tr><td><code>store/</code></td><td>Persistence: schema bootstrap, case rows, loud case resolution, id minting.</td><td><code>bootstrap.ts</code>, <code>store.ts</code>, <code>resolve.ts</code>, <code>queryable.ts</code>, <code>ids.ts</code></td></tr>
+    <tr><td><code>engine/</code></td><td>The facade an app holds; pure affordance/explain computation.</td><td><code>engine.ts</code> (<code>createEngine</code>), <code>compute.ts</code> (<code>computeAffordances</code>, <code>computeExplanation</code>)</td></tr>
+    <tr><td><code>ingestion/</code></td><td>External events: dedup, correlation, dead letters; runs steps via the system runner.</td><td><code>ingest.ts</code>, <code>correlation.ts</code></td></tr>
+    <tr><td><code>migration/</code></td><td>Journaled restructures — float's escape hatch. A sweep over the system runner.</td><td><code>migrate.ts</code></td></tr>
+    <tr><td><code>index.ts</code></td><td>The curated barrel — the package's public interface. Submodule internals stay behind it.</td><td><code>index.ts</code></td></tr>
+    <tr><td><code>errors.ts</code></td><td>The refusal taxonomy: <code>AffordanceError</code> and the closed code set.</td><td><code>errors.ts</code></td></tr>
+  </table>
+  </div>
+
+  <h2>Inside <code>packages/http/src</code></h2>
+  <div class="table-scroll">
+  <table>
+    <tr><th>File</th><th>Owns</th></tr>
+    <tr><td><code>api.ts</code></td><td>Adapter core: the routes, caller-input validation, refusal-code → status mapping. Sees the engine as <code>EnginePort</code>.</td></tr>
+    <tr><td><code>contract.ts</code></td><td>Every byte on the wire — serializers from core records to <code>@affordance/contract</code> payloads.</td></tr>
+    <tr><td><code>audience.ts</code></td><td>The one Visibility rule: what leaves the process at <code>permitted</code> vs <code>all</code>.</td></tr>
+    <tr><td><code>hono.ts</code></td><td>Binding the adapter into a Hono app.</td></tr>
+  </table>
+  </div>
+
+  <h2>The recurring idioms</h2>
+  <ul>
+    <li><strong>One walk, many filters.</strong> Each shape is known in exactly one function; every consumer is a filter over it. Guards: <code>guardEntries</code>. Scope fan-out: <code>selectTargets</code>. Addressing: <code>addressTarget</code>. Running as the system: <code>runAsSystem</code>. A new consumer cannot invent a divergent reading.</li>
+    <li><strong>Lenient / loud pairs.</strong> Wherever old data can defeat the engine, there are exactly two resolutions, part of the interface: lenient for a sweep (skip, contribute nothing), loud for an addressed request (throw, naming what failed).</li>
+    <li><strong>Refusals carry codes.</strong> Every deliberate no is an <code>AffordanceError</code> with a code from a closed set, declared where it is raised. Adapters translate codes, never error classes. Bugs are not refusals and pass through.</li>
+    <li><strong>Erasure at the authoring boundary.</strong> Typed authoring options (<code>StepOptions</code>, <code>ScopedStepOptions</code>) collapse into one machine-facing normal form (<code>StepDefinition</code>) with a single documented cast.</li>
+    <li><strong>Ports for the expensive seam.</strong> The lifecycle talks to storage only through <code>LifecyclePort</code>; tests bind an in-memory port, production binds pg. The port is internal — not a public storage abstraction.</li>
+    <li><strong>One environment object.</strong> <code>createEngine</code> builds the widest environment once (db, registry lookup, clock, timers, lease timings) and hands it to every subsystem.</li>
+    <li><strong>Loud definition-time validation.</strong> <code>step()</code>, <code>anyOf()</code>, <code>caseType()</code>, <code>createEngine()</code> all throw <code>TypeError</code> on malformed definitions — a definition bug fails the deploy, not an evaluation.</li>
+    <li><strong>Curated barrels with literate headers.</strong> Each module's <code>index.js</code> is its interface; each file opens with a doc comment stating its contract. The comments are load-bearing documentation.</li>
+  </ul>
+
+  <footer class="lesson-footer">
+    <p>Reference for the Affordance implementation course. Ask the teaching agent to update this card when the codebase moves.</p>
+  </footer>
+</main>
+</body>
+</html>

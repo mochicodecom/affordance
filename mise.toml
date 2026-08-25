@@ -1,0 +1,4 @@
+[tools]
+# Vite 8 requires node ^20.19.0 || >=22.12.0 — track the 26 line
+# (root package.json engines enforces >=22.12 for non-mise users)
+node = "26"

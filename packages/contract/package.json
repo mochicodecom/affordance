@@ -1,0 +1,17 @@
+{
+  "name": "@affordance/contract",
+  "private": true,
+  "version": "0.0.0",
+  "author": "Mochicode LLC (https://mochicode.com)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

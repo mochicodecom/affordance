@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 1 — The Shape of the Implementation</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span>Lesson 1 · <a href="../reference/codebase-map.html">Codebase map</a></span>
+  </nav>
+
+  <h1>The shape of the implementation</h1>
+  <p class="lede">A map of the code as it actually is: five packages, seven core subsystems, one end-to-end trace, and the handful of idioms the whole codebase is written in.</p>
+
+  <p>You already know what the framework <em>claims</em> — no stored position, guards over state, claim → run → commit. This lesson is about where those claims live in the source and what the code that makes them true looks like. By the end you should be able to open <code>packages/core/src</code> and know what every directory owes you before reading a line of it.</p>
+
+  <h2><span class="kicker">Section 1</span>Five packages, one direction</h2>
+
+  <p>The repo is a pnpm workspace. Dependencies point one way — down toward <code>core</code> — and <code>contract</code> deliberately depends on nothing, because it is the piece a client compiles against without ever touching the engine:</p>
+
+<pre>
+reference-app ──► @affordance/http ──► @affordance/core
+      │                  │
+      └──────────► @affordance/contract ◄── (ui reads payloads against it)
+
+@affordance/testkit — dev-only Postgres test setup, shared by the pg suites
+</pre>
+
+  <p><code>core</code> is the framework: a TypeScript library embedded in the app, persisting to the app's own Postgres. <code>http</code> is an adapter that serves the <code>affordance/v1</code> wire contract and treats the engine as a port. <code>reference-app</code> is a full house-purchase application that exists to prove the framework's claims under test — its <code>steps.ts</code> is the best real-world reading of the authoring API.</p>
+
+  <h2><span class="kicker">Section 2</span>What core is made of</h2>
+
+  <p>Everything interesting is in <code>packages/core/src</code>, split into seven subsystems. The arrows in this table are the actual import direction:</p>
+
+  <div class="table-scroll">
+  <table>
+    <tr><th>Module</th><th>Owns</th><th>The file to read first</th></tr>
+    <tr><td><code>model/</code></td><td>Authoring: case types, steps, scope fan-out, retry</td><td><code>step.ts</code></td></tr>
+    <tr><td><code>guards/</code></td><td>The guard algebra and its one walk; evaluation</td><td><code>guard.ts</code></td></tr>
+    <tr><td><code>execution/</code></td><td>Claim → run → commit; journal; the system runner</td><td><code>execute.ts</code></td></tr>
+    <tr><td><code>store/</code></td><td>Postgres schema, case rows, loud case resolution</td><td><code>store.ts</code></td></tr>
+    <tr><td><code>engine/</code></td><td>The facade the app holds; pure affordance computation</td><td><code>engine.ts</code></td></tr>
+    <tr><td><code>ingestion/</code></td><td>Events in: dedup, correlate, dead-letter</td><td><code>ingest.ts</code></td></tr>
+    <tr><td><code>migration/</code></td><td>Journaled restructures, riding the system runner</td><td><code>migrate.ts</code></td></tr>
+  </table>
+  </div>
+
+  <p>Two things about how these modules are written, before any code:</p>
+  <ul>
+    <li><strong>Every file opens with a literate header.</strong> The doc comment at the top of each module states its contract and its reasoning — they are load-bearing, not decoration. When you read a file, read the header as the spec and the code as its proof.</li>
+    <li><strong>The barrel is curated.</strong> <code>core/src/index.ts</code> is the package's entire public interface, with section comments explaining what is exported and — more telling — what is deliberately kept behind it:</li>
+  </ul>
+
+  <figure class="code">
+    <figcaption>packages/core/src/index.ts</figcaption>
+<pre><span class="cm">// ── The authoring API: case types and steps ────────────────────────────────
+// `step` itself stays behind the barrel: `caseType` requires a state schema,
+// so `stepsOf` covers every authoring case — one public way to write a step.</span>
+export {
+  actor,
+  caseType,
+  DEFAULT_RETRY,
+  SCOPE_FAILURE_CONDITION,
+  ScopeKeyError,
+  StepInputValidationError,
+  stepsOf,
+  UnknownStepError,
+} from './model/index.js'</pre>
+  </figure>
+
+  <p>That comment is typical of the codebase's style: when something is absent, the absence is documented where you would look for it.</p>
+
+  <h2><span class="kicker">Section 3</span>One end-to-end trace</h2>
+
+  <p>The fastest way to own the map is to follow one step from definition to committed execution. Four stops.</p>
+
+  <h3>Stop 1 — Authoring (<code>model/step.ts</code>, used in <code>reference-app/src/steps.ts</code>)</h3>
+
+  <p>An app author never calls <code>step()</code> directly. They bind it once to the case's state schema and actor type, then write every step through the bound factory — which is why none of the conditions below annotate their parameters; the types flow from the schema:</p>
+
+  <figure class="code">
+    <figcaption>packages/reference-app/src/steps.ts</figcaption>
+<pre>const purchaseStep = stepsOf(PurchaseState, actor&lt;PurchaseActor&gt;())
+
+const acceptOffer = purchaseStep({
+  name: 'accept-offer',
+  title: 'Seller accepted our offer',
+  requires: { offerNotYetAccepted, purchaseOpen },   <span class="cm">// case conditions</span>
+  permits: { isOrganizer },                          <span class="cm">// actor conditions</span>
+  handler: async (s) =&gt; ({
+    ...s,
+    property: { ...s.property, offerAcceptedAt: '2026-08-01T09:00:00.000Z' },
+    notes: [...s.notes, 'offer accepted'],
+  }),
+})</pre>
+  </figure>
+
+  <p>Conditions are shared named functions returning <code>{ ok, reason }</code> — the <code>reason</code> is what <code>explain</code> and refusals surface verbatim:</p>
+
+  <figure class="code">
+    <figcaption>packages/reference-app/src/steps.ts</figcaption>
+<pre>const isOrganizer = (_s: Purchase, ctx: Ctx) =&gt; ({
+  ok: hasRole(ctx.actor, 'organizer'),
+  reason: 'only the organizer can take this step',
+})</pre>
+  </figure>
+
+  <p>A <em>scoped</em> step adds one field. <code>scope.select</code> picks elements out of state, <code>scope.key</code> names each one, and the engine fans the step out into one affordance per element. Notice the guard-side trick: the selector itself already encodes "only uncommitted buyers", so the guard needs nothing per-element here:</p>
+
+  <figure class="code">
+    <figcaption>packages/reference-app/src/steps.ts</figcaption>
+<pre>export const recordCommitment = purchaseStep({
+  name: 'record-commitment',
+  title: 'Commit funds',
+  scope: {
+    select: (s) =&gt; s.buyers.filter((b) =&gt; b.committed === null),
+    key: (b) =&gt; b.id,
+  },
+  requires: { purchaseOpen },
+  permits: { isThisBuyer },              <span class="cm">// reads ctx.scope — the bound buyer</span>
+  input: z.object({ amount: z.number().positive() }),
+  handler: async (s, ctx) =&gt; ({
+    ...updateBuyer(s, ctx.scopeKey, (b) =&gt; ({
+      ...b,
+      committed: ctx.input.amount,
+    })),
+    notes: [...s.notes, `${ctx.scopeKey} committed ${ctx.input.amount}`],
+  }),
+})</pre>
+  </figure>
+
+  <p>Under the hood, <code>step()</code> in <code>model/step.ts</code> does two jobs: it <strong>validates loudly at construction time</strong> (a malformed guard entry, a non-function handler, a non-schema <code>input</code> — all throw <code>TypeError</code>, so a definition bug fails the deploy, not an evaluation), and it <strong>erases</strong> the precisely-typed authoring options into one machine-facing normal form, <code>StepDefinition</code>. There is exactly one cast, and it is commented as such:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/model/step.ts — the tail of step()</figcaption>
+<pre>return {
+  name,
+  title: options.title ?? null,
+  description: options.description ?? null,
+  guard,
+  scope,
+  input: options.input ?? null,
+  retry: normalizeRetry(name, options.retry),
+  <span class="cm">// The one erasure cast for handlers: the authored context (typed input,
+  // typed scope element) is what the execution lifecycle constructs; see
+  // ErasedStepHandler.</span>
+  handler: options.handler as unknown as ErasedStepHandler&lt;TState, TActor&gt;,
+}</pre>
+  </figure>
+
+  <div class="aside">
+    <span class="aside-label">Pattern to remember</span>
+    <p>Rich generics live only at the authoring surface; the engine consumes a single erased normal form. When you review a change to the model layer, ask: did it stay on the right side of that boundary, and is any new cast documented like this one?</p>
+  </div>
+
+  <h3>Stop 2 — The guard walk (<code>guards/guard.ts</code>)</h3>
+
+  <p>A guard is two flat AND-maps (<code>requires</code>, <code>permits</code>) whose entries are conditions or one level of named <code>anyOf</code>. The implementation's key move is that <strong>exactly one function knows this shape</strong> — <code>guardEntries</code> — and everything else is a filter over its output:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/guard.ts</figcaption>
+<pre><span class="cm">/**
+ * Walk a guard: every named entry of both sections, in declaration order
+ * (`requires` first), classified and addressed, with `anyOf` arms attached.
+ *
+ * **This is the only place that knows the guard's shape.** Evaluation
+ * (`evaluateGuard`) and definition-time validation (`step()`) are maps and
+ * filters over this — so the algebra grows in one edit instead of two, and
+ * a condition's address is spelled once instead of twice.
+ */</span>
+export const guardEntries = &lt;TState, TActor = unknown&gt;(
+  guard: Guard&lt;TState, TActor&gt;,
+): readonly GuardEntry&lt;TState, TActor&gt;[] =&gt; { <span class="cm">/* … */</span> }</pre>
+  </figure>
+
+  <p>Each entry comes back with its stable <em>condition address</em> — <code>requires.escrowReady</code>, or <code>requires.financing.preApproved</code> for an <code>anyOf</code> arm — which is the name refusals, <code>explain</code>, and the journal all use. The same walk is also what <code>step()</code> uses to validate definitions, so by construction a definition that <code>step()</code> accepts is one <code>evaluateGuard</code> can read.</p>
+
+  <h3>Stop 3 — The facade (<code>engine/engine.ts</code>)</h3>
+
+  <p><code>createEngine</code> is pure wiring: it builds a name-keyed registry of case types, one shared environment, and returns an object whose methods are thin delegations into the subsystems. Trimmed to its skeleton:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/engine/engine.ts</figcaption>
+<pre>export const createEngine = (options: EngineOptions): Engine =&gt; {
+  const registry = new Map&lt;string, AnyCaseType&gt;()
+  <span class="cm">// … throws at construction on duplicate case type names …</span>
+
+  const now = options.now ?? (() =&gt; new Date())
+
+  <span class="cm">// The widest environment any subsystem asks for (IngestionEnvironment ⊇
+  // ExecutionEnvironment), built once and handed to all of them.</span>
+  const environment: IngestionEnvironment = {
+    db: options.db,
+    caseTypeFor,
+    claimTtlMs: options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS,
+    heartbeatMs: options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
+    ingestion: normalizeIngestion(options.ingestion),
+    now,
+    timers: realTimers,
+  }
+
+  return {
+    affordances: async (caseId, actor, asOf) =&gt; {
+      const { definition, snapshot } = await load(caseId)
+      return computeAffordances(definition, snapshot, {
+        actor,
+        asOf: asOf ?? now(),
+      })
+    },
+    execute: (caseId, stepName, { actor, scopeKey, input, /* … */ }) =&gt;
+      executeStep(environment, caseId, stepName, { actor, scopeKey, input, /* … */ }),
+    journal: (caseId, filter) =&gt; readJournal(db, caseId, filter),
+    ingest: (event) =&gt; ingest(environment, event),
+    <span class="cm">// … createCase, explain, case, correlations, deadLetters, migrate …</span>
+  }
+}</pre>
+  </figure>
+
+  <p>Two details worth noticing. First, the clock: <code>now</code> is injected once here and threaded down — conditions never read a clock, so everything below the facade is pure and reconstructable. Second, <code>affordances</code> is just <em>load, then a pure function</em>: <code>computeAffordances</code> in <code>engine/compute.ts</code> takes a definition and a snapshot and returns a serializable answer, with no I/O. The database touch and the computation are never interleaved.</p>
+
+  <h3>Stop 4 — The lifecycle (<code>execution/execute.ts</code>)</h3>
+
+  <p>The header of the largest file in core draws the whole design; the code below it is an implementation of this comment:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/execute.ts — the module header</figcaption>
+<pre>  ┌── transaction ──────────────┐                    ┌── transaction ──────────────┐
+  │ lock the case row           │                    │ lock the case row           │
+  │ take over an expired claim  │   handler runs     │ verify the claim is ours    │
+  │ re-evaluate the guard  ←────┼── here, outside ───┼→ write state, bump seq      │
+  │ insert the claim (lease)    │   any transaction  │ run ctx.onCommit writes     │
+  │ journal `claimed`           │   (heartbeating)   │ journal `completed`         │
+  └─────────────────────────────┘                    └─────────────────────────────┘</pre>
+  </figure>
+
+  <p>The claim is one short transaction under the case row's lock — load, take over any expired lease, resolve the step target, validate input, <strong>re-evaluate the guard</strong> (the enforcement moment), insert the lease, journal <code>claimed</code>. Note what gets journaled: the guard evaluation <em>and the state it ran against</em>, so audit is exact rather than re-derived:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/execute.ts — inside claimCase</figcaption>
+<pre>const asOf = toIso(options.asOf ?? deps.now())
+const guard = evaluateTarget(target, { actor: options.actor, asOf })
+if (!guard.available)
+  throw new StepNotAvailableError(caseId, stepName, scopeKey, guard)
+
+const { claimedAt } = await tx.insertClaim(executionId, stepName, scopeKey, claimTtlMs)
+
+await tx.appendEntry({
+  caseId, executionId,
+  entry: 'claimed',
+  attempt: 1,
+  step: stepName, scopeKey,
+  actor: options.actor,
+  input, asOf, guard,
+  <span class="cm">// The Case State the guard was evaluated against, stored so audit
+  // reconstruction is exact rather than approximate.</span>
+  state,
+})</pre>
+  </figure>
+
+  <p>The handler then runs with no transaction open, kept exclusive by the lease plus a heartbeat. The commit re-takes the row lock and performs the one check that makes a stale write impossible:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/execute.ts — inside commitExecution</figcaption>
+<pre><span class="cm">// The one check that makes a stale write impossible. Changing Case State
+// requires holding the claim, and taking the claim over replaces this row
+// — so finding our own execution id here means nothing has committed on
+// this case since we claimed it, and the state the handler computed from
+// is still current.</span>
+const holder = (await tx.currentClaim())?.executionId ?? null
+if (holder !== claim.executionId) {
+  throw new ClaimLostError(caseId, claim.executionId, holder)
+}
+
+const updated = await tx.updateCaseState(nextState, dormancy)
+await tx.appWrites(writes)                <span class="cm">// the app's ctx.onCommit writes</span>
+await tx.appendEntry({ /* entry: 'completed', delta, dormancy, … */ })
+await tx.deleteClaim(claim.executionId)</pre>
+  </figure>
+
+  <p>One more structural fact, easy to miss: the lifecycle core, <code>runLifecycle</code>, never touches Postgres. It talks to a narrow internal interface, <code>LifecyclePort</code> (<code>execution/port.ts</code>). <code>executeStep</code> binds it to the pg port; the lifecycle's own tests bind it to an in-memory port and drive time through fake timers. The port is not exported — it exists for testability, not as a storage abstraction.</p>
+
+  <h2><span class="kicker">Section 4</span>The idioms, once you know to look</h2>
+
+  <p>Section 3's trace already showed most of the codebase's recurring moves. The full list is on the <a href="../reference/codebase-map.html">codebase map</a>; the two you will meet in every remaining lesson are:</p>
+
+  <p><strong>One walk, many filters.</strong> <code>guardEntries</code> was the first instance. The same discipline repeats wherever two readers could drift apart: scope fan-out is one function (<code>selectTargets</code>) that every listing filters; addressing is one function (<code>addressTarget</code>) whose loud filter is <code>resolveTarget</code> and whose lenient filter is audit replay.</p>
+
+  <p><strong>Lenient / loud pairs.</strong> Wherever old data can defeat the engine, there are exactly two resolutions and which one you get is part of the interface: a <em>sweep</em> is lenient (an unreadable case contributes nothing and the sweep continues), an <em>addressed request</em> is loud (you named a case and a step; silence would be a wrong answer, so it throws). For running steps, the loud half is <code>Engine.execute</code> and the lenient half is drawn once as the system runner:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/execute.ts</figcaption>
+<pre><span class="cm">/**
+ * Run one step on behalf of the system and say how it ended. Never throws:
+ * a sweep ranges over many cases with no caller waiting on any single one,
+ * so the answer is a value — committed (with the result) or settled (with
+ * the error) — and each sweep decides what its kind of sweep does with it.
+ */</span>
+export const runAsSystem = async (
+  env: ExecutionEnvironment,
+  caseId: string,
+  stepName: string,
+  options: SystemRunOptions,
+): Promise&lt;SystemRunOutcome&gt; =&gt; {
+  <span class="cm">/* … try { committed } catch { settled } … */</span>
+}</pre>
+  </figure>
+
+  <p>Ingestion and migration are both filters over this one outcome type — which is exactly the shape you should expect by now.</p>
+
+  <h2><span class="kicker">Check yourself</span>Retrieval practice</h2>
+  <p>From memory — the point is the effort, not the score.</p>
+  <div id="quiz"></div>
+
+  <h2><span class="kicker">Next</span>Where this goes</h2>
+  <p>The planned drill-downs, roughly in dependency order: <strong>guards</strong> (the walk and evaluation in full), the <strong>execution lifecycle</strong> (retry, heartbeat, takeover, the port), the <strong>model</strong> layer's type design, the <strong>store</strong>, <strong>ingestion &amp; migration</strong>, and the <strong>HTTP adapter</strong>. Say which you want next, or ask for the default order.</p>
+
+  <footer class="lesson-footer">
+    <p><strong>Primary source:</strong> <code>docs/architecture.md</code> in this repo — read it beside this lesson; every mechanism shown here is justified there. The vocabulary used throughout is defined in <code>CONTEXT.md</code>.</p>
+    <p>Anything unclear, or an excerpt you want expanded to its full file? Ask the teaching agent — that is what it is for.</p>
+  </footer>
+</main>
+
+<script>
+/* Quiz widget shared by all lessons.
+ *
+ * Usage in a lesson (tags spelled with a spaced slash so this comment
+ * survives being inlined into an HTML <script> block):
+ *   <div id="quiz"></div>
+ *   <script src="../assets/quiz.js">< /script>
+ *   <script>
+ *     renderQuiz(document.getElementById('quiz'), [
+ *       { q: 'Question text?',
+ *         choices: ['A', 'B', 'C', 'D'],
+ *         answer: 2,                       // index into choices
+ *         explain: 'Shown after answering.' },
+ *     ])
+ *   < /script>
+ *
+ * Feedback is immediate: click a choice, it locks, correct/wrong is shown,
+ * and the explanation appears. No score, no persistence — retrieval practice.
+ */
+'use strict'
+
+function renderQuiz(container, questions) {
+  container.classList.add('quiz')
+  questions.forEach(function (question, index) {
+    const box = document.createElement('div')
+    box.className = 'quiz-question'
+
+    const heading = document.createElement('h4')
+    heading.textContent = (index + 1) + '. ' + question.q
+    box.appendChild(heading)
+
+    const buttons = []
+    question.choices.forEach(function (choice, choiceIndex) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'quiz-choice'
+      button.textContent = choice
+      button.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.disabled = true })
+        buttons[question.answer].classList.add('is-correct')
+        if (choiceIndex !== question.answer) button.classList.add('is-wrong')
+        if (question.explain) {
+          const explain = document.createElement('p')
+          explain.className = 'quiz-explain'
+          explain.textContent = question.explain
+          box.appendChild(explain)
+        }
+      })
+      buttons.push(button)
+      box.appendChild(button)
+    })
+
+    container.appendChild(box)
+  })
+}
+</script>
+<script>
+renderQuiz(document.getElementById('quiz'), [
+  {
+    q: 'Where is a guard actually enforced?',
+    choices: [
+      'When affordances are listed',
+      'In the claim transaction',
+      'In the handler function',
+      'In the commit transaction',
+    ],
+    answer: 1,
+    explain: 'Listings are advice from a snapshot. The claim re-evaluates the guard under the case row lock and rejects with the current unmet conditions — the same mechanism covers state races and deploys.',
+  },
+  {
+    q: 'Why does the handler run outside any transaction?',
+    choices: [
+      'It cannot access the database',
+      'It must run before claiming',
+      'It never changes case state',
+      'It may call external services',
+    ],
+    answer: 3,
+    explain: 'Holding a row lock across a provider API call is the failure mode the design refuses. Exclusivity is carried by the lease (a claims row) plus a heartbeat instead.',
+  },
+  {
+    q: 'Which function is the only place that knows the guard’s shape?',
+    choices: ['guardEntries', 'evaluateGuard', 'resolveTarget', 'computeAffordances'],
+    answer: 0,
+    explain: 'Evaluation and definition-time validation are both filters over the guardEntries walk, so the algebra grows in one edit and a condition’s address is spelled once.',
+  },
+  {
+    q: 'What check makes a stale state write impossible at commit?',
+    choices: [
+      'The delta patch still applies',
+      'The guard still evaluates true',
+      'The claim is still held ours',
+      'The case sequence was bumped',
+    ],
+    answer: 2,
+    explain: 'Committing requires finding our own execution id in the claims row. A takeover replaces that row, so a zombie handler’s commit is refused with ClaimLostError.',
+  },
+  {
+    q: 'How does a sweep (ingestion, migration) run a step?',
+    choices: [
+      'Through Engine.execute, catching throws itself',
+      'Through runAsSystem, receiving a total outcome',
+      'Through the LifecyclePort, bypassing the guard',
+      'Through computeAffordances, then a direct commit',
+    ],
+    answer: 1,
+    explain: 'runAsSystem is the lenient half of the pair: never throws, answers committed-or-settled, and each sweep is a filter over that one outcome type.',
+  },
+])
+</script>
+</body>
+</html>

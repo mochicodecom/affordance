@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 7 — The HTTP Adapter</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span>Lesson 7 · <a href="0006-ingestion-and-migration.html">← Lesson 6</a> · <a href="../reference/codebase-map.html">Map</a></span>
+  </nav>
+
+  <h1>The HTTP adapter</h1>
+  <p class="lede"><code>@affordance/http</code> in four files: a framework-agnostic router, one route grammar with two readers, the closed refusal codes turned into statuses, and the audience module that decides what ever leaves the process.</p>
+
+  <h2><span class="kicker">api.ts</span>A router that knows no HTTP library</h2>
+
+  <p>The adapter core routes over plain shapes — <code>{ method, path, query, body, actor }</code> in, <code>{ status, body }</code> out. No <code>Request</code>, no <code>Response</code>, nothing from any HTTP library. The payoff is stated up front, and <code>hono.ts</code> exists mostly to prove it: a binding for hono, express, Lambda, or a test harness is a translation of those two shapes and nothing else.</p>
+
+  <p>The seam carries a second responsibility that is easy to miss: <strong>actor resolution lives on the host side of it</strong>. The binding resolves whatever the app calls an actor (from its session middleware, its tokens) and puts the value on the request; the framework never sees a header. From there down, the actor is opaque — passed verbatim to conditions, journaled verbatim, used verbatim for visibility.</p>
+
+  <p>The adapter also refuses to depend on the whole engine:</p>
+
+  <figure class="code">
+    <figcaption>packages/http/src/api.ts</figcaption>
+<pre><span class="cm">/**
+ * What the adapter needs from an engine — and nothing more. `Engine`
+ * satisfies it structurally — by having these members, no declaration
+ * needed; a test satisfies it with a fake, no database required. Depending
+ * on the whole `Engine` here would mean a stub has to lie to the compiler
+ * (`as unknown as Engine`) and would keep compiling if the adapter quietly
+ * started calling more.
+ */</span>
+export type EnginePort = Pick&lt;Engine,
+  | 'createCase' | 'affordances' | 'affordancesOf' | 'explain' | 'execute'
+  | 'journal' | 'ingest' | 'deadLetters' | 'inputSchemaFor' | 'stepMetadataFor'&gt;</pre>
+  </figure>
+
+  <h2><span class="kicker">errors</span>Codes to statuses — and the two halves of one rule</h2>
+
+  <p>Lesson 3 showed refusals declaring a code at their raise site. Here is the payoff. The adapter's entire error policy is one total map plus one translation function:</p>
+
+  <figure class="code">
+    <figcaption>packages/http/src/api.ts</figcaption>
+<pre><span class="cm">/**
+ * A total map over AffordanceErrorCode, so the compiler — not a reviewer —
+ * is what keeps this exhaustive. The framework declaring the *kind* and the
+ * adapter declaring the *status* is the whole division of labour: core owns
+ * no HTTP, and an error class cannot reach this file without a code.
+ */</span>
+const STATUS: Record&lt;AffordanceErrorCode, number&gt; = {
+  'step-not-available': 409,
+  'case-busy': 409,
+  'invalid-input': 422,
+  'not-found': 404,
+  'bad-request': 400,
+  'execution-failed': 500,
+  'invalid-state': 500,
+}
+
+const toErrorResponse = (error: unknown, visibility: Visibility): ApiResponse =&gt; {
+  if (!(error instanceof AffordanceError)) throw error   <span class="cm">// a bug is not an answer</span>
+  <span class="cm">/* … refusal → { status, code, message, detail } … */</span>
+}</pre>
+  </figure>
+
+  <p>Two symmetric rules meet here, and the code comments name them as halves of one thing:</p>
+
+  <ul>
+    <li><strong>A crash is never answered as a refusal.</strong> Anything that is not an <code>AffordanceError</code> — a bug, the database being gone — is rethrown, not turned into a tidy response.</li>
+    <li><strong>A caller's mistake is never surfaced as a crash.</strong> Malformed caller input found while reading the request (a bad <code>asOf</code>, a non-integer <code>limit</code>, an unknown journal entry kind) is thrown as the framework's own <code>bad-request</code> refusal, so the same single translator answers it with a 400.</li>
+  </ul>
+
+  <p>Because <code>Record&lt;AffordanceErrorCode, number&gt;</code> is total, adding a refusal code to the contract without deciding its status is a compile error in this file. That is the closed-set promise from the architecture doc, mechanized: "a refusal the adapter has never heard of is impossible rather than a 500."</p>
+
+  <h2><span class="kicker">contract.ts</span>One grammar, two readers</h2>
+
+  <p>The route table lives in the contract module, and both the link builder (which fills patterns into hrefs) and the dispatcher (which matches request paths against them) are filters over it — "a link the contract hands out is parseable by construction":</p>
+
+  <figure class="code">
+    <figcaption>packages/http/src/contract.ts</figcaption>
+<pre>export const ROUTES = {
+  createCase:  { method: 'POST', pattern: ['cases'] },
+  ingest:      { method: 'POST', pattern: ['events'] },
+  deadLetters: { method: 'GET',  pattern: ['dead-letters'] },
+  affordances: { method: 'GET',  pattern: ['cases', ':caseId', 'affordances'] },
+  explain:     { method: 'GET',  pattern: ['cases', ':caseId', 'affordances', ':step'] },
+  execute:     { method: 'POST', pattern: ['cases', ':caseId', 'steps', ':step'] },
+  journal:     { method: 'GET',  pattern: ['cases', ':caseId', 'journal'] },
+} as const</pre>
+  </figure>
+
+  <p>The serializers around it produce <em>every byte any route puts on the wire</em>, translating core records into <code>@affordance/contract</code>'s payload types — which live in a dependency-free package so a client reads against them without acquiring the engine. The translation is deliberately field-by-field even where the types are structurally identical today: "assignability covers renames but not additions — a field core grows would otherwise pass silently onto every surface this module exists to police."</p>
+
+  <p>Three route-level decisions carry design weight:</p>
+
+  <ul>
+    <li><strong><code>POST /events</code> answers 200 for any event it recorded</strong>, whatever became of it — "a 5xx teaches the provider to retry something that will never succeed." The dead-letter surface is where outcomes are read (Lesson 6).</li>
+    <li><strong><code>asOf</code> is accepted on reads only.</strong> The affordances route allows read-only time travel ("what was possible last Tuesday"), but the execute route deliberately does not: "evaluating a claim as of an instant the caller chose would let the caller get past a time condition."</li>
+    <li><strong>Create answers from the handle in hand.</strong> <code>createCase</code> responds with <code>affordancesOf(created)</code> — no second load: "the row was written and validated one statement ago, so a re-read would only fetch back the same data."</li>
+  </ul>
+
+  <h2><span class="kicker">audience.ts</span>The one module that decides what a caller may be told</h2>
+
+  <p>This is the sharpest file in the package, and its premise is a security observation: <code>permits</code> conditions encode internal policy — role names, thresholds, approval hierarchies — and <em>naming the one a caller failed tells them exactly what to fake to pass it</em>. So under the default <code>permitted</code> visibility, no <code>permits</code> result ever leaves the process: not in a blocked entry, not in an explanation, not in a refusal, and not in a journal entry's recorded guard.</p>
+
+  <p>The rule has record-sized consequences, each decided here and nowhere else:</p>
+
+  <div class="table-scroll">
+  <table>
+    <tr><th>Function</th><th>What the default audience loses</th></tr>
+    <tr><td><code>visibleConditions</code> / <code>visibleGuard</code></td><td>Every <code>permits</code> condition result. The verdict pair (<code>possible</code>/<code>permitted</code>) survives — "not you" is an honest answer — but never <em>which rule</em> decided it.</td></tr>
+    <tr><td><code>visibleAffordances</code></td><td>Blocked entries this actor is not permitted — which is where <em>other actors' tracks disappear</em>: a buyer's payload contains their own track and nothing else, without the app writing a filter.</td></tr>
+    <tr><td><code>visibleJournalEntry</code></td><td>The recorded case state — operator-only. And it is <em>absent</em>, not <code>null</code>: "a <code>null</code> would read as 'the evidence was empty' where the truth is 'not yours to read'."</td></tr>
+    <tr><td><code>visibleRefusal</code></td><td>The refusal's prose itself is rebuilt from the visible conditions only — the framework's own message names everything, "which is right for a server log and wrong for a response body."</td></tr>
+  </table>
+  </div>
+
+  <p>And the structural argument for why the rule lives in one module, from the header — perhaps the best single statement of the codebase's review philosophy:</p>
+
+  <figure class="code">
+    <figcaption>packages/http/src/audience.ts</figcaption>
+<pre><span class="cm">/**
+ * The rule living here, once, is what makes "the fifth read surface forgot
+ * to filter" a structural impossibility instead of a review item: a
+ * serializer that bypasses this module has to *not import it*, which is
+ * visible in a diff, rather than re-implement it slightly wrong, which
+ * is not.
+ */</span></pre>
+  </figure>
+
+  <h2><span class="kicker">hono.ts</span>The binding, as small as promised</h2>
+
+  <p>The whole binding: parse a body, read a query, resolve the actor (after the host's own auth middleware), call <code>api.handle</code>, set a status. Porting to express or a Lambda handler is rewriting this file and nothing else:</p>
+
+  <figure class="code">
+    <figcaption>packages/http/src/hono.ts</figcaption>
+<pre>app.all('/*', async (c) =&gt; {
+  const url = new URL(c.req.url)
+  const request: ApiRequest = {
+    method: c.req.method,
+    path: url.pathname,
+    query: Object.fromEntries(url.searchParams.entries()),
+    body: await bodyOf(c),
+    actor: await options.resolveActor(c),   <span class="cm">// the host's business, always</span>
+    ...(options.resolveVisibility !== undefined &amp;&amp; {
+      visibility: options.resolveVisibility(c),
+    }),
+  }
+  const response = await options.api.handle(request)
+  return c.json(response.body as object, response.status as 200)
+})</pre>
+  </figure>
+
+  <h2><span class="kicker">Check yourself</span>Retrieval practice</h2>
+  <div id="quiz"></div>
+
+  <h2><span class="kicker">Next</span>Where this goes</h2>
+  <p>Lesson 8, the last, reads the reference app as an integration test of everything: how a real case type, its steps, its mock providers, and the demo console exercise the machinery from Lessons 1–7.</p>
+
+  <footer class="lesson-footer">
+    <p><strong>Primary source:</strong> the header of <code>packages/http/src/audience.ts</code>, then <code>docs/affordance-contract.md</code> for the wire format the serializers implement.</p>
+    <p>Anything unclear, or an excerpt you want expanded to its full file? Ask the teaching agent.</p>
+  </footer>
+</main>
+
+<script>
+/* Quiz widget shared by all lessons.
+ *
+ * Usage in a lesson:
+ *   <div id="quiz"></div>
+ *   <script src="../assets/quiz.js">< /script>
+ *   <script>
+ *     renderQuiz(document.getElementById('quiz'), [
+ *       { q: 'Question text?',
+ *         choices: ['A', 'B', 'C', 'D'],
+ *         answer: 2,                       // index into choices
+ *         explain: 'Shown after answering.' },
+ *     ])
+ *   < /script>
+ *
+ * Feedback is immediate: click a choice, it locks, correct/wrong is shown,
+ * and the explanation appears. No score, no persistence — retrieval practice.
+ */
+'use strict'
+
+function renderQuiz(container, questions) {
+  container.classList.add('quiz')
+  questions.forEach(function (question, index) {
+    const box = document.createElement('div')
+    box.className = 'quiz-question'
+
+    const heading = document.createElement('h4')
+    heading.textContent = (index + 1) + '. ' + question.q
+    box.appendChild(heading)
+
+    const buttons = []
+    question.choices.forEach(function (choice, choiceIndex) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'quiz-choice'
+      button.textContent = choice
+      button.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.disabled = true })
+        buttons[question.answer].classList.add('is-correct')
+        if (choiceIndex !== question.answer) button.classList.add('is-wrong')
+        if (question.explain) {
+          const explain = document.createElement('p')
+          explain.className = 'quiz-explain'
+          explain.textContent = question.explain
+          box.appendChild(explain)
+        }
+      })
+      buttons.push(button)
+      box.appendChild(button)
+    })
+
+    container.appendChild(box)
+  })
+}
+</script>
+<script>
+renderQuiz(document.getElementById('quiz'), [
+  {
+    q: 'Why is EnginePort a Pick of Engine rather than Engine itself?',
+    choices: [
+      'Stubs stay honest, and new engine calls stay visible',
+      'The full Engine type is too large to import here',
+      'Pick erases the async signatures the adapter avoids',
+      'It hides operator methods from the request path',
+    ],
+    answer: 0,
+    explain: 'A fake satisfies the Pick without lying to the compiler, and if the adapter quietly started calling more of the engine, the port type would stop compiling.',
+  },
+  {
+    q: 'What keeps the refusal-code → status map complete?',
+    choices: [
+      'A runtime check that 500s on unknown codes',
+      'The Record type over the closed code set',
+      'A contract test enumerating every route',
+      'Code review against the contract document',
+    ],
+    answer: 1,
+    explain: 'STATUS is Record<AffordanceErrorCode, number> — total by type. Adding a code to the contract without deciding its status is a compile error, not a latent 500.',
+  },
+  {
+    q: 'Why does the execute route refuse an asOf parameter?',
+    choices: [
+      'Instants in bodies cannot be validated reliably',
+      'The claim transaction supplies its own timestamp',
+      'A chosen instant could talk past a time condition',
+      'Execution timestamps must come from Postgres',
+    ],
+    answer: 2,
+    explain: 'asOf is read-only time travel. Letting a caller pick the enforcement instant would let them evaluate the claim as of a time when a time-dependent condition read differently.',
+  },
+  {
+    q: 'Under default visibility, why do other actors’ tracks vanish from a listing?',
+    choices: [
+      'The app registers a per-actor filter at mount time',
+      'Scoped steps only fan out over the caller’s elements',
+      'Blocked entries failing this actor’s permits are dropped',
+      'The engine never computes entries for other actors',
+    ],
+    answer: 2,
+    explain: 'The engine computes everything; visibleAffordances drops blocked entries whose permits this actor failed. A buyer sees their own track with no app-side filtering code.',
+  },
+  {
+    q: 'Why is a journal entry’s state absent rather than null for non-operators?',
+    choices: [
+      'Absent keys compress better on the wire',
+      'null would read as "the evidence was empty"',
+      'The contract types forbid nullable state',
+      'Old entries genuinely never stored state',
+    ],
+    answer: 1,
+    explain: 'The truth is "not yours to read", and the payload shape says so: the key is omitted entirely, so absence cannot be mistaken for an empty recorded document.',
+  },
+])
+</script>
+</body>
+</html>

@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 3 — The Execution Lifecycle</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span>Lesson 3 · <a href="0002-guards-one-walk-one-answer.html">← Lesson 2</a> · <a href="../reference/codebase-map.html">Map</a></span>
+  </nav>
+
+  <h1>The execution lifecycle</h1>
+  <p class="lede">Everything in <code>execution/</code>: the port that makes the lifecycle testable, the claim's takeover logic, the retry loop, the commit's one decisive check, and the journal that remembers all of it.</p>
+
+  <p>Lesson 1 showed the skeleton — claim → run → commit, two short transactions with the handler outside both. This lesson fills in the machinery around that skeleton, which is where most of the module's care actually went: what happens when a handler crashes, when a lease expires, when an attempt fails, and how every one of those moments is remembered.</p>
+
+  <h2><span class="kicker">port.ts</span>The seam the whole module stands on</h2>
+
+  <p>The lifecycle core never touches Postgres. It runs against <code>LifecyclePort</code>, and the file's header is explicit about why this seam exists and — just as important — why it is <em>not</em> public:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/port.ts</figcaption>
+<pre><span class="cm">/**
+ * An **internal** seam, deliberately. `docs/architecture.md` stands:
+ * Postgres is a hard dependency and there is no public storage-adapter
+ * abstraction — an app never sees this interface. It exists because the
+ * claim state machine (busy vs. takeover, the holder check, retry
+ * classification, per-attempt write discard) upholds more always-true
+ * rules in one place than anything else in the package, and testing those
+ * rules means staging precise situations — an expired lease, a takeover
+ * mid-run — that should not require a running database. Two adapters make
+ * the seam real: the pg one below for production, and the in-memory one in
+ * `test/execution/memory-port.ts` for the tests.
+ */</span></pre>
+  </figure>
+
+  <p>The port's shape encodes the transactional structure directly. <code>withCaseLock</code> means "one short transaction holding the case row's lock" — the claim and the commit are each exactly one of those — and everything else (heartbeat, retry journaling, release) deliberately runs outside any transaction:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/port.ts</figcaption>
+<pre>export interface LifecyclePort {
+  <span class="cm">/** One short transaction holding the case row's lock — a claim or a commit. */</span>
+  readonly withCaseLock: &lt;T&gt;(caseId, fn: (tx: LifecycleTx) =&gt; Promise&lt;T&gt;) =&gt; Promise&lt;T&gt;
+  <span class="cm">/** Journal outside any transaction — `attempt-failed` / `failed` entries. */</span>
+  readonly appendEntry: (input: JournalEntryInput) =&gt; Promise&lt;JournalEntry&gt;
+  <span class="cm">/** Refresh the lease. Best-effort: a failed beat just lets the claim age. */</span>
+  readonly heartbeat: (caseId, executionId, ttlMs) =&gt; Promise&lt;void&gt;
+  readonly bumpAttempt: (caseId, executionId, attempt) =&gt; Promise&lt;void&gt;
+  <span class="cm">/** Scoped to executionId, so releasing a lease we no longer hold is a no-op. */</span>
+  readonly releaseClaim: (caseId, executionId) =&gt; Promise&lt;void&gt;
+}</pre>
+  </figure>
+
+  <p>In the pg adapter, the lease verbs are wrapped in <code>.catch(() =&gt; undefined)</code> — best-effort by contract. A missed heartbeat just lets the claim age; correctness never depends on a beat landing, only on the commit-time holder check. One more deliberate choice hides in the SQL: lease expiry is computed as <code>now() + $ttl</code> <em>in Postgres</em> and compared as <code>expires_at &lt;= now()</code> — the storage's clock, the one clock all competing processes share, never the engine's injected <code>now</code>.</p>
+
+  <p>Time on the process side gets the same seam treatment. <code>timers.ts</code> is two verbs — <code>sleep</code> (the retry delay) and <code>every</code> (the heartbeat) — so the lifecycle's tests drive elapsed time virtually instead of sleeping through it. Even here there is a considered line: the retry <code>sleep</code> is deliberately <em>not</em> unref'd (a retry delay is work in progress; exiting during one abandons a claimed execution), while the heartbeat interval <em>is</em> (a heartbeat alone should never hold the process open).</p>
+
+  <h2><span class="kicker">claim</span>Busy, or takeover</h2>
+
+  <p>The first thing a claim does under the row lock is judge whatever claim already sits on the case. Live means busy; expired means a crashed handler's abandoned lease, and the newcomer takes the case over — journaling the abandonment as an <code>expired</code> entry:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/execute.ts — clearStaleClaim</figcaption>
+<pre>const held = await tx.currentClaim()
+if (!held) return
+if (!held.expired) {
+  throw new CaseBusyError(caseId, { executionId: held.executionId, <span class="cm">/* … */</span> })
+}
+await tx.appendEntry({
+  caseId,
+  executionId: held.executionId,      <span class="cm">// the abandoned execution's entry, not ours</span>
+  entry: 'expired',
+  attempt: held.attempt,
+  step: held.step,
+  scopeKey: held.scopeKey,
+  error: { name: 'ClaimExpiredError',
+           message: `claim expired at ${held.expiresAt} …` },
+})
+await tx.deleteClaim(held.executionId)</pre>
+  </figure>
+
+  <p>There is a subtlety here that repays attention: the abandonment entry rides <em>the claim transaction</em>. If our own claim then fails its guard, the whole transaction rolls back — abandonment record included — and the dead lease stays in place. The comment explains why that is right: an expired lease blocks nothing, and the abandonment only becomes a fact worth recording when somebody actually took the case over.</p>
+
+  <p>Then comes the enforcement moment (guard re-evaluation, Lesson 2's <code>evaluateGuard</code> via <code>evaluateTarget</code>), and a refusal that is self-explaining by construction — <code>StepNotAvailableError</code> carries the <em>current</em> unmet conditions, rendered through the derived views:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/errors.ts</figcaption>
+<pre>const unmet = unmetConditions(evaluation)
+const target = stepLabel(stepName, scopeKey)   <span class="cm">// `'record-commitment' (buyer_7)`</span>
+super(
+  'step-not-available',
+  `step ${target} is not available on case ${caseId}: ${
+    describeUnmet(evaluation) || '(no unmet conditions reported)'
+  }`,
+)</pre>
+  </figure>
+
+  <p>Note the first constructor argument: <code>'step-not-available'</code> is the refusal <em>code</em>, from the closed set, declared exactly where the refusal is raised. The HTTP adapter will translate codes, never classes (Lesson 7).</p>
+
+  <h2><span class="kicker">run</span>The retry loop and the handler's context</h2>
+
+  <p>The heart of <code>runLifecycle</code> is a <code>for (let attempt = 1; ; attempt += 1)</code> loop. Two decisions shape it. First, <strong>everything an attempt registers is per-attempt</strong> — a failed attempt's <code>onCommit</code> writes and its <code>end()</code>/<code>reopen()</code> intent are discarded with the attempt that made them:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/execute.ts — inside the loop</figcaption>
+<pre><span class="cm">// Per-attempt, never carried over: a failed attempt's registered writes
+// and dormancy intent are discarded with the attempt that made them.</span>
+const writes: CommitWrite[] = []
+let dormancy: Dormancy | null = null
+
+const context = {
+  executionId, caseId,
+  actor: options.actor,
+  input: claim.input,
+  attempt, maxAttempts: policy.maxAttempts,
+  onCommit: (write: CommitWrite) =&gt; { writes.push(write) },
+  correlate: (request: CorrelationRequest) =&gt; { <span class="cm">/* an onCommit write, see Lesson 6 */</span> },
+  end: () =&gt; { dormancy = 'ended' },
+  reopen: () =&gt; { dormancy = 'reopened' },
+  ...(claim.target.binding !== null &amp;&amp; {
+    scope: claim.target.binding.element,
+    scopeKey: claim.target.binding.key,
+  }),
+}</pre>
+  </figure>
+
+  <p>Second, <strong>not every failure deserves a retry</strong>. A handler that returns state its own schema rejects would return it again next attempt — a deterministic defect — so it is wrapped in an internal <code>NonRetryable</code> marker and fails immediately. So does <code>ClaimLostError</code>: once the claim is gone, retrying cannot get it back. Everything else follows the step's retry policy, journaling <code>attempt-failed</code> and sleeping the backoff delay between attempts:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/execute.ts — the catch arm</figcaption>
+<pre>const fatal = error instanceof NonRetryable || error instanceof ClaimLostError
+const cause = error instanceof NonRetryable ? error.reason : error
+
+if (!fatal &amp;&amp; attempt &lt; policy.maxAttempts) {
+  await Promise.all([
+    journal('attempt-failed', attempt, journalError),
+    port.bumpAttempt(caseId, executionId, attempt + 1),
+  ])
+  await deps.timers.sleep(policy.delayMs(attempt))
+  continue
+}
+await journal('failed', attempt, journalError)
+await port.releaseClaim(caseId, executionId)
+if (cause instanceof ClaimLostError) throw cause
+throw new StepExecutionError(caseId, executionId, stepName, claim.scopeKey, attempt, cause)</pre>
+  </figure>
+
+  <p>Retries reuse the same <code>executionId</code>, the same claim, and the same starting state — nothing else can have moved the case, because the claim is still held. The execution id is also the handler's idempotency key: at-least-once effects on the outside world are the handler's to deduplicate, and the id is what it deduplicates on.</p>
+
+  <h2><span class="kicker">commit</span>One check, and why expired-but-undisturbed is fine</h2>
+
+  <p>Lesson 1 showed the holder check; here is the part of its comment that usually surprises people:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/execute.ts — commitExecution</figcaption>
+<pre><span class="cm">// … finding our own execution id here means nothing has committed on
+// this case since we claimed it, and the state the handler computed from
+// is still current. An expired-but-undisturbed lease therefore commits
+// quite legitimately: a handler that overran its lease with no contender
+// has raced nobody.</span></pre>
+  </figure>
+
+  <p>Expiry is a <em>permission for others to take over</em>, not a deadline on us. Exclusivity comes from the claims row itself: our row still present means no takeover happened, so the commit is safe regardless of the clock. If a takeover <em>did</em> happen, our row is gone (replaced by the newcomer's) and the commit is refused with <code>ClaimLostError</code> — whose refusal code, note, is <code>'case-busy'</code>: to the caller, "the case moved on under you" is the same actionable answer as "the case is busy", and one an adapter can already render.</p>
+
+  <p>One performance note shows the codebase's habit of stating micro-decisions: the JSON Patch delta is computed <em>before</em> the commit transaction opens — pure CPU over the whole state document has no business running under a row lock.</p>
+
+  <h2><span class="kicker">journal.ts</span>What is remembered, and how it is typed</h2>
+
+  <p>Five entry kinds tell an execution's whole story: <code>claimed</code>, <code>attempt-failed</code>, <code>completed</code>, <code>failed</code>, <code>expired</code>. The implementation's nice move is making the field/kind pairing a <em>type</em> rather than prose:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/execution/journal.ts</figcaption>
+<pre><span class="cm">/**
+ * What appendEntry needs — a discriminated union on `entry`, so
+ * which fields accompany which lifecycle moment is stated by the type
+ * itself rather than re-derived from prose by every reader.
+ * `{ entry: 'failed', guard, delta }` is unrepresentable rather than
+ * quietly journaled.
+ */</span>
+export type JournalEntryInput =
+  | ClaimedEntryInput      <span class="cm">// requires asOf, guard, state — the evidence</span>
+  | CompletedEntryInput    <span class="cm">// requires delta; optional dormancy</span>
+  | FailureEntryInput      <span class="cm">// attempt-failed | failed | expired — requires error</span></pre>
+  </figure>
+
+  <p>Only inserts exist in the module — there is no update or delete path for a journal row anywhere in the library. And a journal append must never be the thing that fails a good execution, so serialization is total: a value that will not stringify (a cycle, a BigInt) is journaled as an <code>{ "~unserializable": … }</code> marker rather than thrown over.</p>
+
+  <p>Two readers sit on top. <code>foldExecutions</code> assembles one record per execution from its entries — and its header preempts the obvious objection: this is folding entries of the <em>same</em> execution into one record, not deriving state from a log, which is the thing the design rejects. <code>replayGuard</code> (in <code>replay.ts</code>) is the audit tool: it re-runs <em>today's</em> definition against the journaled state, actor, and instant, and reports both evaluations side by side. A mismatch is not a bug — it is the signal that the guard changed since the execution ran. And an entry today's definitions cannot address at all is reported as <code>unaddressable</code> rather than thrown: replay is a sweep, so it takes the lenient side of the pair.</p>
+
+  <h2><span class="kicker">Check yourself</span>Retrieval practice</h2>
+  <div id="quiz"></div>
+
+  <h2><span class="kicker">Next</span>Where this goes</h2>
+  <p>Lesson 4 goes back up to the model layer: how <code>caseType</code> and the step-target machinery (<code>selectTargets</code>, <code>addressTarget</code>, <code>resolveTarget</code>) implement scope fan-out with the lenient/loud pair, and how the authoring types are engineered.</p>
+
+  <footer class="lesson-footer">
+    <p><strong>Primary source:</strong> <code>packages/core/src/execution/execute.ts</code> top to bottom — its header comment is the design drawn in ASCII — with <code>test/execution/memory-port.ts</code> and the lifecycle tests beside it.</p>
+    <p>Anything unclear, or an excerpt you want expanded to its full file? Ask the teaching agent.</p>
+  </footer>
+</main>
+
+<script>
+/* Quiz widget shared by all lessons.
+ *
+ * Usage in a lesson:
+ *   <div id="quiz"></div>
+ *   <script src="../assets/quiz.js">< /script>
+ *   <script>
+ *     renderQuiz(document.getElementById('quiz'), [
+ *       { q: 'Question text?',
+ *         choices: ['A', 'B', 'C', 'D'],
+ *         answer: 2,                       // index into choices
+ *         explain: 'Shown after answering.' },
+ *     ])
+ *   < /script>
+ *
+ * Feedback is immediate: click a choice, it locks, correct/wrong is shown,
+ * and the explanation appears. No score, no persistence — retrieval practice.
+ */
+'use strict'
+
+function renderQuiz(container, questions) {
+  container.classList.add('quiz')
+  questions.forEach(function (question, index) {
+    const box = document.createElement('div')
+    box.className = 'quiz-question'
+
+    const heading = document.createElement('h4')
+    heading.textContent = (index + 1) + '. ' + question.q
+    box.appendChild(heading)
+
+    const buttons = []
+    question.choices.forEach(function (choice, choiceIndex) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'quiz-choice'
+      button.textContent = choice
+      button.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.disabled = true })
+        buttons[question.answer].classList.add('is-correct')
+        if (choiceIndex !== question.answer) button.classList.add('is-wrong')
+        if (question.explain) {
+          const explain = document.createElement('p')
+          explain.className = 'quiz-explain'
+          explain.textContent = question.explain
+          box.appendChild(explain)
+        }
+      })
+      buttons.push(button)
+      box.appendChild(button)
+    })
+
+    container.appendChild(box)
+  })
+}
+</script>
+<script>
+renderQuiz(document.getElementById('quiz'), [
+  {
+    q: 'Why does the LifecyclePort exist, given Postgres is a hard dependency?',
+    choices: [
+      'To let apps swap in other databases later',
+      'To make the claim state machine testable',
+      'To pool connections across engine instances',
+      'To keep SQL out of the public barrel',
+    ],
+    answer: 1,
+    explain: 'It is an internal seam, not a storage abstraction: the claim machine upholds more always-true rules than anything else in the package, and its tests stage those situations against an in-memory port instead of a database.',
+  },
+  {
+    q: 'A claim finds an expired lease, then fails its own guard. What remains?',
+    choices: [
+      'The dead lease stays; no abandonment entry',
+      'The lease is cleared; an expired entry stands',
+      'Both the lease and the entry are written',
+      'The case is marked busy until the TTL',
+    ],
+    answer: 0,
+    explain: 'The expired entry and takeover ride the claim transaction, so a failed guard rolls both back. Deliberate: an expired lease blocks nothing, and abandonment is only worth recording when someone actually took over.',
+  },
+  {
+    q: 'Which failures skip the retry policy entirely?',
+    choices: [
+      'Any AffordanceError and any TypeError',
+      'Handler throws that repeat three times',
+      'Schema-rejected state and a lost claim',
+      'Timeouts on the heartbeat or the sleep',
+    ],
+    answer: 2,
+    explain: 'A handler returning state its own schema rejects is deterministic — the next attempt returns it again. A lost claim cannot be won back by retrying. Both are fatal immediately.',
+  },
+  {
+    q: 'A handler overruns its lease but nobody took the case over. Its commit…',
+    choices: [
+      'succeeds, because its claims row is still present',
+      'fails, because the storage clock marked it expired',
+      'retries, after re-claiming the case from scratch',
+      'succeeds, but the journal records it as expired',
+    ],
+    answer: 0,
+    explain: 'Expiry is permission for others to take over, not a deadline on us. The holder check finds our own execution id, which proves nothing committed since we claimed — the state we computed from is still current.',
+  },
+  {
+    q: 'What does a mismatch from replayGuard mean?',
+    choices: [
+      'The journal entry was corrupted at write time',
+      'The step definition changed since the execution',
+      'The case state failed its schema validation',
+      'The recorded actor lacked the permits section',
+    ],
+    answer: 1,
+    explain: 'Replay re-runs today’s definition against the journaled moment. Cases float to the latest definitions, so a mismatch is the interesting signal — the guard drifted — not a bug.',
+  },
+])
+</script>
+</body>
+</html>

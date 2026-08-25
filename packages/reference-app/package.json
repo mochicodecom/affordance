@@ -1,0 +1,34 @@
+{
+  "name": "@affordance/reference-app",
+  "private": true,
+  "version": "0.0.0",
+  "author": "Mochicode LLC (https://mochicode.com)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "serve": "tsx src/serve.ts",
+    "ui:build": "pnpm -C ui install && pnpm -C ui build",
+    "ui:dev": "pnpm -C ui install && pnpm -C ui dev"
+  },
+  "dependencies": {
+    "@affordance/core": "workspace:*",
+    "@affordance/http": "workspace:*",
+    "@hono/node-server": "^2.1.0",
+    "hono": "^4.13.0",
+    "pg": "^8.13.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@affordance/testkit": "workspace:*",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.23.6",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

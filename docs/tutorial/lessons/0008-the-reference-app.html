@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 8 — The Reference App</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span>Lesson 8 · <a href="0007-the-http-adapter.html">← Lesson 7</a> · <a href="../reference/codebase-map.html">Map</a></span>
+  </nav>
+
+  <h1>The reference app</h1>
+  <p class="lede">The house purchase read as an integration test of Lessons 1–7: a state schema with no position, guards that encode sequencing as data, mock providers that are deliberately unhelpful, and wiring that shows the whole of what an app owes the framework.</p>
+
+  <h2><span class="kicker">state.ts</span>A schema with no "where we are"</h2>
+
+  <p>The state file's header makes the framework's bet concrete: no status field, no stage, no current-step pointer. Two implementation disciplines follow from float, and both are visible in the schema itself:</p>
+
+  <ul>
+    <li><strong>Every field is defaulted</strong> — "that is not tidiness: a case created under an earlier definition set and read by a later one must parse." The zod <code>.default(…)</code> calls are the schema-side half of the <code>?? fallback</code> totality discipline.</li>
+    <li><strong>Outcomes are state.</strong> <code>purchase.closedAt</code> and <code>purchase.deedRecordedAt</code> are ordinary nullable strings read by ordinary conditions — which is what lets post-completion work be ordinary guarded steps.</li>
+  </ul>
+
+  <p>The file also holds the domain's shared rules, and one of them demonstrates an anti-drift idiom worth naming. <code>arrivedAmount</code> — which money counts as arrived — is used by both the close guard's <code>funded</code> condition <em>and</em> the dev console's wire levers: "the single counting rule … stated here once so a console can never disagree with the guard about whose money is in." When a UI needs to predict what a guard will say, the prediction and the guard must share a function, never a copy.</p>
+
+  <h2><span class="kicker">steps.ts</span>Sequencing, exceptions, and endings — all as guards</h2>
+
+  <p>Lesson 1 showed the linear stretch. The back half of the file is where the framework's harder claims get tested. The close guard is the richest single guard in the repo — including the codebase's one production <code>anyOf</code>, used for a genuine business disjunction:</p>
+
+  <figure class="code">
+    <figcaption>packages/reference-app/src/steps.ts — closeConditions</figcaption>
+<pre>const closeConditions: ConditionMap&lt;Purchase, PurchaseActor&gt; = {
+  purchaseOpen,
+  called:       (s) =&gt; ({ ok: s.fundingCall !== null, reason: '…' }),
+  allSigned:    (s) =&gt; ({ ok: committedBuyers(s).every((b) =&gt; b.agreement?.signed ?? false), reason: '…' }),
+  wiresSettled: (s) =&gt; { <span class="cm">/* every wire matched or resolved */</span> },
+  <span class="cm">/** Either every buyer's money is in, or the organizer accepted closing a
+   *  little short — a genuine disjunction in the business, expressed as one
+   *  rather than as two nearly-identical steps. */</span>
+  funded: anyOf({
+    fullyFunded: (s) =&gt; ({
+      ok: arrivedAmount(s.wires) &gt;= (s.fundingCall?.amount ?? Number.POSITIVE_INFINITY),
+      reason: 'the wires do not cover the funding call',
+    }),
+    shortClosePermitted: (s) =&gt; ({
+      ok: s.wires.some((w) =&gt; w.resolution === 'accepted-short'),
+      reason: 'no short wire has been accepted',
+    }),
+  }),
+}</pre>
+  </figure>
+
+  <p>The wire-reconciliation "exception path" is the claim under test: <code>record-wire</code> classifies each wire at the same commit that records it (<code>matched</code> / <code>short</code> / <code>over</code> / <code>wrong-account</code>), and each bad outcome has its own resolution step, scoped over exactly the wires bearing it. "No branch is drawn anywhere; the exception paths are simply steps that become available when their facts are true." The three resolutions come from one factory, and even their <code>permits</code> encode a judgement — returning money is the escrow officer's mechanics, but accepting a short wire is the organizer's <em>deal concession</em>, because it is what <code>shortClosePermitted</code> reads.</p>
+
+  <p>The ending shows the completion stance in four lines:</p>
+
+  <figure class="code">
+    <figcaption>packages/reference-app/src/steps.ts — closePurchase's handler</figcaption>
+<pre>handler: async (s, ctx) =&gt; {
+  <span class="cm">// The outcome is state; `end()` is the dormancy annotation beside it.</span>
+  ctx.end()
+  return {
+    ...s,
+    purchase: { ...s.purchase, closedAt: '2026-08-20T17:00:00.000Z' },
+    notes: [...s.notes, 'purchase closed'],
+  }
+}</pre>
+  </figure>
+
+  <p>And <code>record-deed</code> follows — guarded on <code>closedAt !== null</code>, executable on the dormant case, no special machinery. Being <em>offered</em> <code>record-deed</code> is being told the purchase closed.</p>
+
+  <h2><span class="kicker">purchase.ts / services.ts</span>Binding at definition time, providers that misbehave on purpose</h2>
+
+  <p>The case type is built by a factory that takes the providers its handlers call — "binding happens here, at definition time — two apps in one process each get definitions wired to their own providers, with no shared registry to rebind and no install-before-execute ordering rule." Note also what the factory's header repeats: the definition set has no "finished" declaration, because the framework has no slot for one.</p>
+
+  <p>The mock providers earn their place by being <em>deliberately unhelpful</em> in the three ways real providers are:</p>
+
+  <figure class="code">
+    <figcaption>packages/reference-app/src/services.ts</figcaption>
+<pre><span class="cm">/**
+ * 1. **They answer later.** A request queues a delivery; nothing happens
+ *    until the queue is flushed. A case sits in "waiting on the provider"
+ *    exactly as it would in production.
+ * 2. **They deliver more than once.** Every queued webhook is delivered
+ *    `attempts` times, because every provider retries and the framework's
+ *    dedup has to earn its keep on each one.
+ * 3. **They quote their own identifiers.** A webhook names an envelope, not
+ *    a case — so it only routes if the handler that started the interaction
+ *    registered the correlation.
+ */</span></pre>
+  </figure>
+
+  <p>Each of the three maps to a subsystem from earlier lessons: (1) materialize-on-event, (2) the unique-insert dedup gate, (3) the correlation registry. A demo whose integrations resolved inline would prove none of them.</p>
+
+  <h2><span class="kicker">app.ts</span>The whole of what an app has to do</h2>
+
+  <p>The wiring function is the framework's embedding story in one place: bootstrap the schema, build the providers, register the case type, say what ingestion runs as, mount the adapter:</p>
+
+  <figure class="code">
+    <figcaption>packages/reference-app/src/app.ts</figcaption>
+<pre>const engine = createEngine({
+  db: options.db,
+  caseTypes: [createPurchaseDefinition(services)],
+  <span class="cm">// Ingestion runs as *this app's* actor shape, not as the framework's
+  // marker: `permits` conditions here read `roles`.</span>
+  ingestion: { actor: (event) =&gt; integration(event.system) },
+})
+
+const api = createAffordanceApi({
+  engine,
+  basePath: '/api',
+  describeInput: (schema) =&gt; z.toJSONSchema(schema as z.ZodType),
+})
+
+const actorFromHeaders = (c: Context): PurchaseActor =&gt; ({
+  id: c.req.header('x-actor-id') ?? 'anonymous',
+  roles: (c.req.header('x-actor-roles') ?? '').split(',').filter(Boolean),
+})</pre>
+  </figure>
+
+  <p>Three details reward attention:</p>
+
+  <ul>
+    <li><strong>The ingestion actor mapping</strong> is the hook from Lesson 6 in use: events run as <code>{ id: 'system:escrow', roles: ['integration', …] }</code> so this app's <code>permits</code> conditions (<code>isIntegration</code>) read their own shape, not a framework marker.</li>
+    <li><strong>One authorization rule lives in the host, and the comment argues why:</strong> creating a case takes the organizer role, enforced by middleware at the mount — "case creation has no guard for a <code>permits</code> to live in — who may start a matter is the host's decision, so it sits here in the wiring, not in the framework."</li>
+    <li><strong>The dev console is quarantined under <code>/dev</code>, with its leaks recorded.</strong> <code>GET /dev/cases</code> queries the framework's own table because the engine deliberately has no list read ("apps own their read models") — the comment brands it "a recorded leak, acceptable only under <code>/dev</code>". The case-purge route iterates <code>CASE_TABLES</code> because "a private copy went stale once already, leaving deleted cases' <code>ingested_events</code> behind, and those leftover dedup rows suppressed future deliveries that quoted the same identifiers." Even the world panel predicts webhook routing with <code>routedStep</code> — the framework's own rule — "so the panel's prediction of where a webhook lands cannot drift from what <code>ingest</code> will do."</li>
+  </ul>
+
+  <p>That last bullet is the course's closing theme in miniature: everywhere two components could hold separate copies of one rule — a guard and a console, a router and a link builder, a serializer and a policy — this codebase makes them share the single implementation, and writes down the one time it didn't and got burned.</p>
+
+  <h2><span class="kicker">Check yourself</span>Retrieval practice</h2>
+  <div id="quiz"></div>
+
+  <h2><span class="kicker">Course complete</span>Where to go from here</h2>
+  <p>You have now walked every subsystem. Three ways to consolidate:</p>
+  <ul>
+    <li><strong>Re-read the source cold.</strong> Pick a file you found hardest (a good candidate: <code>execution/execute.ts</code>) and read it top to bottom without the lesson — the headers should now read as summaries of things you know.</li>
+    <li><strong>Trace a demo scenario.</strong> Run the reference app, execute a step from the console, and follow it through the journal — claim entry, completed entry, delta.</li>
+    <li><strong>Review a change against the idiom list</strong> on the <a href="../reference/codebase-map.html">codebase map</a> — the durable artifact of this course. The next LLM-written diff is the real exam.</li>
+  </ul>
+
+  <footer class="lesson-footer">
+    <p><strong>Primary source:</strong> <code>packages/reference-app/src/steps.ts</code> read whole — it is the framework's claims written as a working domain — with <code>docs/architecture.md</code> as the closing re-read.</p>
+    <p>Anything unclear, or a topic worth a follow-up lesson (the React console, the test harnesses, the contract package)? Ask the teaching agent.</p>
+  </footer>
+</main>
+
+<script>
+/* Quiz widget shared by all lessons.
+ *
+ * Usage in a lesson:
+ *   <div id="quiz"></div>
+ *   <script src="../assets/quiz.js">< /script>
+ *   <script>
+ *     renderQuiz(document.getElementById('quiz'), [
+ *       { q: 'Question text?',
+ *         choices: ['A', 'B', 'C', 'D'],
+ *         answer: 2,                       // index into choices
+ *         explain: 'Shown after answering.' },
+ *     ])
+ *   < /script>
+ *
+ * Feedback is immediate: click a choice, it locks, correct/wrong is shown,
+ * and the explanation appears. No score, no persistence — retrieval practice.
+ */
+'use strict'
+
+function renderQuiz(container, questions) {
+  container.classList.add('quiz')
+  questions.forEach(function (question, index) {
+    const box = document.createElement('div')
+    box.className = 'quiz-question'
+
+    const heading = document.createElement('h4')
+    heading.textContent = (index + 1) + '. ' + question.q
+    box.appendChild(heading)
+
+    const buttons = []
+    question.choices.forEach(function (choice, choiceIndex) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'quiz-choice'
+      button.textContent = choice
+      button.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.disabled = true })
+        buttons[question.answer].classList.add('is-correct')
+        if (choiceIndex !== question.answer) button.classList.add('is-wrong')
+        if (question.explain) {
+          const explain = document.createElement('p')
+          explain.className = 'quiz-explain'
+          explain.textContent = question.explain
+          box.appendChild(explain)
+        }
+      })
+      buttons.push(button)
+      box.appendChild(button)
+    })
+
+    container.appendChild(box)
+  })
+}
+</script>
+<script>
+renderQuiz(document.getElementById('quiz'), [
+  {
+    q: 'Why is every field in PurchaseState defaulted?',
+    choices: [
+      'Old documents must parse under new definitions',
+      'zod requires defaults on nullable object fields',
+      'Defaults keep the initial-state payload small',
+      'The console cannot render undefined values',
+    ],
+    answer: 0,
+    explain: 'Cases float: a document written under an earlier definition set must validate under a later one, and conditions must be able to read fields that did not exist when it was written.',
+  },
+  {
+    q: 'How do the wire exception paths avoid declared branches?',
+    choices: [
+      'The handler dispatches on outcome internally',
+      'Each resolution step is guarded on its outcome',
+      'Ingestion routes each outcome to a different case',
+      'The console offers buttons per outcome kind',
+    ],
+    answer: 1,
+    explain: 'record-wire classifies the wire as state; each resolution step scopes over wires bearing its outcome with no resolution yet. The "branch" is just guards meeting facts.',
+  },
+  {
+    q: 'Why does arrivedAmount live in state.ts rather than in the console?',
+    choices: [
+      'The console bundle cannot import server code',
+      'It needs the schema types only state.ts sees',
+      'The guard and the console must share one rule',
+      'It predates the console and was never moved',
+    ],
+    answer: 2,
+    explain: 'The close guard counts with it and the console’s wire levers predict from it. A copy in the UI could drift from the guard; a shared function cannot.',
+  },
+  {
+    q: 'Why is create-case authorization in the host’s middleware, not a guard?',
+    choices: [
+      'Guards cannot express role membership checks',
+      'Creation has no guard for a permits to live in',
+      'The adapter drops permits on the create route',
+      'Middleware is faster than guard evaluation',
+    ],
+    answer: 1,
+    explain: 'Guards belong to steps on an existing case; creation precedes the case. Who may start a matter is the host’s decision, enforced at the same seam that resolves the actor.',
+  },
+  {
+    q: 'What do the mock providers deliberately get wrong, on purpose?',
+    choices: [
+      'They answer late, retry, and quote their own ids',
+      'They corrupt payloads to exercise validation',
+      'They reorder webhooks across different cases',
+      'They reject every third request they receive',
+    ],
+    answer: 0,
+    explain: 'Those are the three ways real integrations are hard — and they exercise materialize-on-event, the dedup gate, and the correlation registry respectively. Inline-resolving mocks would prove nothing.',
+  },
+])
+</script>
+</body>
+</html>

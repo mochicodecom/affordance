@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 2 — Guards: One Walk, One Answer</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span>Lesson 2 · <a href="0001-the-shape-of-the-implementation.html">← Lesson 1</a> · <a href="../reference/codebase-map.html">Map</a></span>
+  </nav>
+
+  <h1>Guards: one walk, one answer</h1>
+  <p class="lede">The guards module in full: how the condition contract is enforced by types, how the algebra stays small, and how one evaluation record feeds every consumer — listings, <code>explain</code>, refusals, and the journal.</p>
+
+  <p>The module is four files, and their division of labor is clean: <code>condition.ts</code> states the contract of a single condition, <code>guard.ts</code> owns the algebra and its single walk, <code>evaluate.ts</code> turns a guard plus a context into the evaluation record, and <code>time.ts</code> normalizes instants. This lesson reads them in that order.</p>
+
+  <h2><span class="kicker">condition.ts</span>The contract, enforced where possible</h2>
+
+  <p>A condition is one named, pure, synchronous predicate. The interesting part of the implementation is <em>which</em> of those properties are enforced by types and which are left as documented discipline:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/condition.ts</figcaption>
+<pre><span class="cm">/**
+ * What a condition may return: a bare boolean, or a ConditionVerdict
+ * carrying a reason. Nothing else — in particular no `Promise`. A `Promise`
+ * is not assignable to this type, which is what makes async conditions
+ * inexpressible rather than merely discouraged.
+ */</span>
+export type ConditionOutcome = boolean | ConditionVerdict
+
+export type Condition&lt;TState, TActor = unknown&gt; = (
+  state: TState,
+  ctx: ConditionContext&lt;TActor&gt;,
+) =&gt; ConditionOutcome</pre>
+  </figure>
+
+  <ul>
+    <li><strong>Synchronous — enforced by type.</strong> An <code>async</code> condition returns a <code>Promise</code>, which is not assignable to <code>ConditionOutcome</code>. Compile error, not a lint rule.</li>
+    <li><strong>Clock-free — enforced by omission.</strong> <code>ConditionContext</code> carries <code>actor</code> and (for scoped steps) <code>scope</code>, and deliberately no clock. Nothing stops a condition from calling <code>Date.now()</code>, but the interface offers no time, and evaluation takes an explicit <code>asOf</code>.</li>
+    <li><strong>Total over historical state — discipline only.</strong> The doc comment states the <code>s.split?.confirmed ?? false</code> rule; types cannot enforce it, so the runtime absorbs violations instead (below).</li>
+  </ul>
+
+  <p>The <code>{ ok, reason }</code> verdict form is why the reference app's conditions read the way they do — the <code>reason</code> string travels verbatim into evaluation records, <code>explain</code> output, and the journal.</p>
+
+  <h2><span class="kicker">guard.ts</span>An algebra small enough to walk once</h2>
+
+  <p>A guard is two flat AND-maps plus one level of named disjunction. The one-level limit is not a validation rule — it is a type. An <code>anyOf</code> arm's type <em>is</em> a plain condition, so nesting a group inside a group is inexpressible:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/guard.ts</figcaption>
+<pre><span class="cm">/**
+ * What may sit inside an `anyOf` group: a plain condition. Never another
+ * `anyOf` — the algebra allows exactly one level of grouping, and this type
+ * is what enforces it.
+ */</span>
+export type AnyOfArm&lt;TState, TActor = unknown&gt; = Condition&lt;TState, TActor&gt;
+
+export interface Guard&lt;TState, TActor = unknown&gt; {
+  readonly requires?: ConditionMap&lt;TState, TActor&gt;
+  readonly permits?: ConditionMap&lt;TState, TActor&gt;
+}</pre>
+  </figure>
+
+  <p>Lesson 1 introduced <code>guardEntries</code> as "the only place that knows the guard's shape". Here is what it actually yields — every entry of both sections, classified and pre-addressed, with <code>anyOf</code> arms attached:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/guard.ts</figcaption>
+<pre>export interface GuardEntry&lt;TState, TActor = unknown&gt; {
+  readonly section: GuardSection            <span class="cm">// 'requires' | 'permits'</span>
+  readonly name: string
+  readonly kind: GuardEntryKind             <span class="cm">// 'condition' | 'anyOf' | 'unknown'</span>
+  readonly entry: ConditionMapEntry&lt;TState, TActor&gt;
+  readonly address: string                  <span class="cm">// `requires.escrowReady`</span>
+  readonly arms: readonly GuardArm&lt;TState, TActor&gt;[]
+}</pre>
+  </figure>
+
+  <p>Note the <code>'unknown'</code> kind. The walk is <em>total</em>: a malformed entry (something that is neither a function nor an <code>anyOf</code> group) is classified and reported — the walk itself never throws. What happens to an <code>'unknown'</code> entry then depends on who is filtering the walk — and this is the design's punchline:</p>
+
+  <ul>
+    <li><strong><code>step()</code> filters it into a deploy failure.</strong> Definition-time validation walks the guard and throws <code>TypeError</code> on any non-<code>condition</code>, non-<code>anyOf</code> entry.</li>
+    <li><strong><code>evaluateGuard</code> filters it into a failed condition.</strong> If a malformed entry somehow reaches evaluation, it becomes <code>passed: false</code> with the reason <code>"entry is not a condition function or an anyOf(...) group"</code> — one bad entry degrades one answer, never the case.</li>
+  </ul>
+
+  <p>Same walk, two policies, and no third reader that could quietly disagree.</p>
+
+  <h2><span class="kicker">evaluate.ts</span>The evaluation record</h2>
+
+  <p><code>evaluateGuard(guard, ctx)</code> produces one plain, JSON-serializable object that the rest of the engine leans on. Its guarantees are stated in the header and worth memorizing, because they are what everything downstream assumes:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/evaluate.ts</figcaption>
+<pre>export interface GuardEvaluation {
+  readonly asOf: string        <span class="cm">// the instant evaluated as of, ISO-8601 UTC</span>
+  readonly possible: boolean   <span class="cm">// every `requires` condition holds</span>
+  readonly permitted: boolean  <span class="cm">// every `permits` condition holds</span>
+  readonly available: boolean  <span class="cm">// possible &amp;&amp; permitted</span>
+  readonly conditions: readonly ConditionResult[]
+}</pre>
+  </figure>
+
+  <ul>
+    <li><strong>Pure and deterministic</strong> — no I/O, no ambient clock; same (guard, state, actor, asOf), same record.</li>
+    <li><strong>Complete</strong> — every condition and every <code>anyOf</code> arm is evaluated and reported. There is no short-circuiting, so "why not?" is always answerable in full, and a passing <code>anyOf</code> shows which arm carried it.</li>
+    <li><strong>Total</strong> — a condition that throws (usually a totality bug against sparse historical state) becomes a failed result whose reason is the thrown message.</li>
+    <li><strong>Serializable</strong> — the record goes into the journal's guard-results field verbatim.</li>
+  </ul>
+
+  <p>The totality guarantee is concentrated in one function. Read the shape of <code>evaluateCondition</code> — every exit is a result, never a throw:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/evaluate.ts</figcaption>
+<pre>let outcome: ConditionOutcome
+try {
+  outcome = condition(state, ctx)
+} catch (err) {
+  return { name, section, kind: 'condition', passed: false,
+           reason: `condition threw: ${thrownMessage(err)}` }
+}
+if (typeof outcome === 'boolean') {
+  return { name, section, kind: 'condition', passed: outcome }
+}
+if (typeof outcome === 'object' &amp;&amp; outcome !== null
+    &amp;&amp; typeof outcome.ok === 'boolean') {
+  return withReason(
+    { name, section, kind: 'condition' as const, passed: outcome.ok },
+    outcome.reason,
+  )
+}
+return { name, section, kind: 'condition', passed: false,
+         reason: 'condition returned neither a boolean nor an { ok, reason? } verdict' }</pre>
+  </figure>
+
+  <p>One subtlety: <code>explain</code> can be called with no actor at all, to probe <code>requires</code> alone. Rather than running <code>permits</code> conditions against <code>undefined</code> (and absorbing the resulting <code>TypeError</code>s as fake failures), evaluation uses a sentinel:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/evaluate.ts</figcaption>
+<pre>export const NO_ACTOR: unique symbol = Symbol('affordance.no-actor')
+
+export const NOT_EVALUATED_REASON = 'not evaluated: no actor supplied'
+
+<span class="cm">// inside evaluateCondition:</span>
+if (section === 'permits' &amp;&amp; (ctx.actor as unknown) === NO_ACTOR) {
+  return { name, section, kind: 'condition', passed: false,
+           reason: NOT_EVALUATED_REASON }
+}</pre>
+  </figure>
+
+  <p>A <code>permits</code> condition under <code>NO_ACTOR</code> is honestly reported as "not evaluated" rather than falsely as "failed because the code crashed". Only <code>permits</code> is skipped — it is the only kind of entry that reads the actor.</p>
+
+  <h3>Derived views, not conventions</h3>
+
+  <p>The tail of <code>evaluate.ts</code> is three small functions that matter more than their size suggests. Every consumer that renders a refusal calls them instead of re-spelling the filter:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/evaluate.ts</figcaption>
+<pre><span class="cm">/**
+ * The unmet conditions of an evaluation — the derived view every consumer
+ * of a refusal renders. A view, not a convention: the error message, the
+ * blocked entry and the wire payload all call this instead of each spelling
+ * `conditions.filter(!passed)` for themselves.
+ */</span>
+export const unmetConditions = (evaluation) =&gt;
+  evaluation.conditions.filter((condition) =&gt; !condition.passed)
+
+<span class="cm">// unmetAddresses: flattens to `requires.financing.preApproved` addresses,
+//                 naming each failing anyOf arm individually
+// describeUnmet:  renders one message clause: `requires.a — why; permits.b`</span></pre>
+  </figure>
+
+  <p>This is the same idiom as the walk, applied one level up: <code>evaluateGuard</code> is the one producer, and <code>unmetConditions</code> / <code>unmetAddresses</code> / <code>describeUnmet</code> are the named views over it. When you later read <code>StepNotAvailableError</code>'s message, the blocked entries in an affordance listing, and the HTTP adapter's refusal payloads, they will all be these three functions wearing different clothes.</p>
+
+  <h2><span class="kicker">time.ts</span>The lenient/loud pair, applied to instants</h2>
+
+  <p>The smallest file in the module is a textbook instance of the codebase's central idiom. Two functions, same job, opposite failure policies — and <em>which one you get is part of the interface</em>:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/guards/time.ts</figcaption>
+<pre><span class="cm">/** Normalize any Instant form to epoch ms; `null` when not determinable.
+ *  **Total** by design — never throws, because absence and rubbish in
+ *  historical Case State are ordinary and mean "not determinable". */</span>
+export const toEpochMs = (value: unknown): number | null =&gt; { <span class="cm">/* … */</span> }
+
+<span class="cm">/** Normalize any Instant to ISO-8601 UTC, **loudly**.
+ *  The loud counterpart: this one reads *caller input* (an `asOf`), where a
+ *  value that is not an instant is a caller bug, not a pending fact. */</span>
+export const toIso = (value: Instant): string =&gt; {
+  const ms = toEpochMs(value)
+  if (ms === null) throw new TypeError(
+    'asOf/endedAt must be a Date, ISO-8601 string, or epoch milliseconds')
+  return new Date(ms).toISOString()
+}</pre>
+  </figure>
+
+  <p>Lenient (<code>toEpochMs</code>) reads <em>case data</em>, where garbage is a fact of life; loud (<code>toIso</code>) reads <em>caller input</em>, where garbage is a bug. And note that loud is implemented as a filter over lenient — the same one-implementation rule again, in miniature.</p>
+
+  <h2><span class="kicker">Check yourself</span>Retrieval practice</h2>
+  <div id="quiz"></div>
+
+  <h2><span class="kicker">Next</span>Where this goes</h2>
+  <p>Lesson 3 follows the evaluation record into the execution lifecycle: how the claim re-runs <code>evaluateGuard</code> transactionally, and everything around it — the port, retries, heartbeat, and takeover.</p>
+
+  <footer class="lesson-footer">
+    <p><strong>Primary source:</strong> the "Guards advise, handlers enforce" section of <code>docs/architecture.md</code>, then <code>packages/core/src/guards/</code> itself — all four files are short enough to read whole.</p>
+    <p>Anything unclear, or an excerpt you want expanded to its full file? Ask the teaching agent.</p>
+  </footer>
+</main>
+
+<script>
+/* Quiz widget shared by all lessons.
+ *
+ * Usage in a lesson:
+ *   <div id="quiz"></div>
+ *   <script src="../assets/quiz.js">< /script>
+ *   <script>
+ *     renderQuiz(document.getElementById('quiz'), [
+ *       { q: 'Question text?',
+ *         choices: ['A', 'B', 'C', 'D'],
+ *         answer: 2,                       // index into choices
+ *         explain: 'Shown after answering.' },
+ *     ])
+ *   < /script>
+ *
+ * Feedback is immediate: click a choice, it locks, correct/wrong is shown,
+ * and the explanation appears. No score, no persistence — retrieval practice.
+ */
+'use strict'
+
+function renderQuiz(container, questions) {
+  container.classList.add('quiz')
+  questions.forEach(function (question, index) {
+    const box = document.createElement('div')
+    box.className = 'quiz-question'
+
+    const heading = document.createElement('h4')
+    heading.textContent = (index + 1) + '. ' + question.q
+    box.appendChild(heading)
+
+    const buttons = []
+    question.choices.forEach(function (choice, choiceIndex) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'quiz-choice'
+      button.textContent = choice
+      button.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.disabled = true })
+        buttons[question.answer].classList.add('is-correct')
+        if (choiceIndex !== question.answer) button.classList.add('is-wrong')
+        if (question.explain) {
+          const explain = document.createElement('p')
+          explain.className = 'quiz-explain'
+          explain.textContent = question.explain
+          box.appendChild(explain)
+        }
+      })
+      buttons.push(button)
+      box.appendChild(button)
+    })
+
+    container.appendChild(box)
+  })
+}
+</script>
+<script>
+renderQuiz(document.getElementById('quiz'), [
+  {
+    q: 'How are async conditions prevented?',
+    choices: [
+      'A runtime check rejects Promises',
+      'The return type excludes Promise',
+      'A lint rule forbids async here',
+      'The evaluator awaits then warns',
+    ],
+    answer: 1,
+    explain: 'ConditionOutcome is boolean | ConditionVerdict; a Promise is not assignable to it, so an async condition is a compile error — inexpressible rather than discouraged.',
+  },
+  {
+    q: 'What happens when a condition throws during evaluation?',
+    choices: [
+      'It reports failed, with the thrown message',
+      'It aborts the whole guard evaluation',
+      'It retries once against fresh state',
+      'It propagates to the calling engine',
+    ],
+    answer: 0,
+    explain: 'Evaluation is total: one defective condition (usually a totality bug against old state) degrades one answer, never the whole case.',
+  },
+  {
+    q: 'Why does anyOf allow only one level of nesting?',
+    choices: [
+      'The walk rejects deeper groups at runtime',
+      'The evaluator flattens any deeper nesting',
+      'The arm type is itself a plain condition',
+      'The step validator strips nested groups out',
+    ],
+    answer: 2,
+    explain: 'AnyOfArm is defined as Condition — a nested anyOf group is not assignable, so deeper trees are inexpressible in the type system.',
+  },
+  {
+    q: 'What does a permits condition report when explain runs with no actor?',
+    choices: [
+      'Passed, since permits are vacuous then',
+      'Failed, with a stated not-evaluated reason',
+      'Failed, with the thrown TypeError message',
+      'Omitted entirely from the evaluation record',
+    ],
+    answer: 1,
+    explain: 'The NO_ACTOR sentinel skips permits conditions and reports them failed with "not evaluated: no actor supplied" — honest, rather than a fake crash-failure.',
+  },
+  {
+    q: 'Why do toEpochMs and toIso have opposite failure policies?',
+    choices: [
+      'toIso predates the lenient rewrite of toEpochMs',
+      'toEpochMs reads case data; toIso reads caller input',
+      'toIso is only ever called from inside test code',
+      'toEpochMs handles numbers while toIso handles strings',
+    ],
+    answer: 1,
+    explain: 'Rubbish in historical case state is ordinary ("not determinable"), so toEpochMs is total. A malformed asOf from a caller is a bug, so toIso throws. Loud is a filter over lenient.',
+  },
+])
+</script>
+</body>
+</html>

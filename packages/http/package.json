@@ -1,0 +1,30 @@
+{
+  "name": "@affordance/http",
+  "private": true,
+  "version": "0.0.0",
+  "author": "Mochicode LLC (https://mochicode.com)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@affordance/contract": "workspace:*",
+    "@affordance/core": "workspace:*",
+    "@standard-schema/spec": "^1.1.0",
+    "hono": "^4.13.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@affordance/testkit": "workspace:*",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.0",
+    "zod": "^4.4.3"
+  }
+}

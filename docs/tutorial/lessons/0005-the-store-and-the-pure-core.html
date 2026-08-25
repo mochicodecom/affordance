@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 5 — The Store and the Pure Core</title>
+<style>
+/* Shared stylesheet for the Affordance implementation course.
+   Every lesson and reference document links this file. */
+
+:root {
+  --ink: #1a1a18;
+  --ink-soft: #55534d;
+  --paper: #fffdf9;
+  --paper-raised: #f6f3ec;
+  --rule: #e3ded2;
+  --accent: #8a4f22;        /* section markers, links */
+  --accent-soft: #b9926f;
+  --good: #2c6e49;
+  --bad: #9e2b25;
+  --code-bg: #f4f1ea;
+  --code-ink: #33312c;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e4da;
+    --ink-soft: #a49f93;
+    --paper: #191816;
+    --paper-raised: #211f1c;
+    --rule: #3a3730;
+    --accent: #d99a5b;
+    --accent-soft: #8a6a48;
+    --good: #7fc8a0;
+    --bad: #e08a84;
+    --code-bg: #211f1c;
+    --code-ink: #ddd8cc;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 47rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────── */
+
+.masthead {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin-bottom: 2.5rem;
+}
+.masthead a { color: inherit; text-decoration: none; }
+.masthead a:hover { color: var(--accent); }
+
+/* ── Headings & prose ─────────────────────────────────────── */
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+}
+
+.lede {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.2rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.8rem 0 0.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+h2 .kicker {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+h3 { font-size: 1.08rem; margin: 1.8rem 0 0.5rem; }
+
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.35rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+
+/* ── Code ─────────────────────────────────────────────────── */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+figure.code {
+  margin: 1.4rem 0 1.6rem;
+}
+figure.code figcaption {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.45rem 0.9rem;
+}
+figure.code pre { margin: 0; border-radius: 0 0 8px 8px; }
+figure.code figcaption + pre { border-top: none; }
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1.4rem 0 1.6rem;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+pre .cm  { color: var(--ink-soft); font-style: italic; }  /* comment */
+pre .kw  { color: var(--accent); }                        /* keyword */
+pre .st  { color: var(--good); }                          /* string */
+pre .hl  { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 1.4rem 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.4rem 0.75rem 0.4rem 0;
+  border-bottom: 1.5px solid var(--rule);
+}
+td {
+  padding: 0.55rem 0.75rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+td code { white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Callouts ─────────────────────────────────────────────── */
+
+.aside {
+  border-left: 3px solid var(--accent-soft);
+  background: var(--paper-raised);
+  border-radius: 0 8px 8px 0;
+  padding: 0.8rem 1.1rem;
+  margin: 1.4rem 0 1.6rem;
+  font-size: 0.95rem;
+}
+.aside .aside-label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+
+/* ── Quiz (rendered by quiz.js) ───────────────────────────── */
+
+.quiz { margin: 1.6rem 0; }
+.quiz-question {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--paper-raised);
+}
+.quiz-question h4 {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quiz-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.45rem;
+  cursor: pointer;
+}
+.quiz-choice:hover:not(:disabled) { border-color: var(--accent-soft); }
+.quiz-choice:disabled { cursor: default; opacity: 0.75; }
+.quiz-choice.is-correct { border-color: var(--good); color: var(--good); opacity: 1; font-weight: 700; }
+.quiz-choice.is-wrong   { border-color: var(--bad); color: var(--bad); }
+.quiz-explain {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+.quiz-explain::before {
+  content: "Why: ";
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────── */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+/* ── Print ────────────────────────────────────────────────── */
+
+@media print {
+  body { font-size: 10.5pt; }
+  main { max-width: none; padding: 0; }
+  pre, figure.code { break-inside: avoid; }
+  .quiz { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <nav class="masthead">
+    <span>Affordance · Implementation Course</span>
+    <span>Lesson 5 · <a href="0004-the-model-layer.html">← Lesson 4</a> · <a href="../reference/codebase-map.html">Map</a></span>
+  </nav>
+
+  <h1>The store and the pure core</h1>
+  <p class="lede">The bottom and the top of the engine in one lesson: how Postgres is held (the <code>Queryable</code> seam, the schema, a bootstrap that yields to live work), and the pure computation the whole load-then-compute pattern feeds.</p>
+
+  <h2><span class="kicker">queryable.ts</span>Declared, never sniffed</h2>
+
+  <p>The app brings its own database handle, and the store's first design decision is to make the caller <em>declare</em> what kind it is instead of the framework guessing:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/store/queryable.ts</figcaption>
+<pre><span class="cm">/**
+ * The union states, in the type, the one fact a transaction must know:
+ * whether `begin` needs a checked-out connection first. A pool multiplexes —
+ * issuing `begin` on it would put each statement on a different connection —
+ * so `pool` promises checkout via `connect()`, and `client` asserts a
+ * connection dedicated to the engine. The caller declares which they have;
+ * nothing downstream sniffs the object to guess.
+ */</span>
+export type DatabaseAccess =
+  | { readonly pool: PoolLike }
+  | { readonly client: Queryable }</pre>
+  </figure>
+
+  <p>The second decision is to make "inside a transaction" a compile-time fact rather than a comment. <code>Transaction</code> is a branded <code>Queryable</code>, and the brand is applied in exactly one place — past the <code>begin</code> in <code>withTransaction</code>:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/store/queryable.ts</figcaption>
+<pre>declare const transactionBrand: unique symbol
+
+<span class="cm">/**
+ * Some operations are meaningless (or silently wrong) against a pool: a
+ * `select … for update` whose lock vanishes with the statement, a write
+ * that must commit in the same transaction as the state it accompanies.
+ * Those take a `Transaction`, so "pass the transaction handle, not a pool"
+ * is a compile error rather than a sentence a caller has to have read.
+ */</span>
+export interface Transaction extends Queryable {
+  readonly [transactionBrand]: true
+}</pre>
+  </figure>
+
+  <p>This is the same philosophy as Lesson 2's <code>ConditionOutcome</code> excluding <code>Promise</code>: wherever a rule can be a type, it is a type, and the doc comment explains what the type is protecting.</p>
+
+  <h2><span class="kicker">store.ts / resolve.ts</span>Load, resolve, validate — spelled once</h2>
+
+  <p>Every read path needs the same three moves in the same order: load the row, resolve <code>case_type</code> against the registered definitions, validate the stored document against that definition's schema. The order is forced by the data — <em>the schema to validate against is only knowable from the row</em> — which is why the untyped loader exists and why its doc comment reads like a warning label:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/store/store.ts</figcaption>
+<pre><span class="cm">/**
+ * Load a Case by id with the stored state **unvalidated** (`unknown`).
+ * Additive export for the engine: the engine learns which state schema
+ * applies only *from* the loaded row — `case_type` names the registered
+ * case type — so it must read the row before it can validate. …
+ * whoever consumes this handle owns validating `state` before trusting it.
+ */</span>
+export const selectCaseUntyped = async (db, id): Promise&lt;CaseHandle&lt;unknown&gt;&gt; =&gt; { <span class="cm">/* … */</span> }</pre>
+  </figure>
+
+  <p><code>resolve.ts</code> packages the three moves as the interface, and — by now you can predict this — it is a lenient/loud pair:</p>
+
+  <ul>
+    <li><strong><code>resolveCase</code> / <code>resolveCaseForUpdate</code> are loud.</strong> Their callers were handed a case id and owe an answer about <em>that</em> case; a stored document that no longer validates is an app bug and says so (<code>CaseStateValidationError</code>).</li>
+    <li><strong><code>resolveStoredState</code> is lenient.</strong> Its callers sweep (migration scanning a case type); an unreadable case contributes nothing. One detail shows the care level: it returns <code>{ state } | null</code> — wrapped in an object — because a perfectly valid case state may legitimately <em>be</em> <code>null</code>, and a sweep must not confuse the two.</li>
+  </ul>
+
+  <p><code>resolveCaseForUpdate</code> uses <code>select … for update</code>, and its comment names what that row lock actually is: <em>the execution lifecycle's serialization point</em>. The claim and the commit both take it first, which is what makes "exactly one of N concurrent attempts claims" and the takeover decision things no two transactions can decide concurrently.</p>
+
+  <p>Ids, in passing, are minted as <code>kind:uuid</code> — <code>case:…</code>, <code>execution:…</code> — self-describing wherever they travel (a log line, a support ticket). The prefix is for humans; equality is the only operation ids support, and nothing anywhere parses one apart.</p>
+
+  <h2><span class="kicker">bootstrap.ts</span>DDL that yields to live work</h2>
+
+  <p>The schema is five tables in a dedicated <code>affordance</code> Postgres schema (so named because <code>case</code> is a SQL reserved word): <code>cases</code>, <code>journal</code>, <code>claims</code>, <code>correlations</code>, <code>ingested_events</code>. Two rows of the DDL are whole design decisions in one constraint each:</p>
+
+  <div class="table-scroll">
+  <table>
+    <tr><th>Constraint</th><th>What it is</th></tr>
+    <tr><td><code>claims.case_id text primary key</code></td><td>"One in-flight execution per case" — the serialization rule as a table constraint, not code.</td></tr>
+    <tr><td><code>ingested_events.idempotency_key unique</code></td><td>"Three deliveries, one execution" — webhook dedup as a database fact rather than a hope (Lesson 6).</td></tr>
+  </table>
+  </div>
+
+  <p><code>bootstrap()</code> is called on every app start, and the interesting engineering is in making that <em>safe against a busy database</em>. The header states the trap precisely:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/store/bootstrap.ts</figcaption>
+<pre><span class="cm">/**
+ * This is what makes `bootstrap` free on every start after the first. The DDL
+ * is idempotent, but idempotent is not the same as *harmless*: `create
+ * index if not exists` takes a table lock whether or not it has work to do,
+ * and a bootstrap holding one while Executions commit can deadlock with them
+ * — not as a rare race, but predictably, on every start against a busy
+ * database. Asking first means the locks are only ever taken when there is
+ * genuinely something to create.
+ */</span>
+const isCurrent = async (db: Queryable): Promise&lt;boolean&gt; =&gt; { <span class="cm">/* version check */</span> }</pre>
+  </figure>
+
+  <p>Three defenses stack: a <code>schema_version</code> check first (the common case takes no locks at all); a <code>pg_advisory_xact_lock</code> serializing concurrent bootstraps; and — inside the DDL itself — <code>set local lock_timeout = '2s'</code>, so when there <em>is</em> work and it collides with live commits, <strong>the bootstrap is the transaction that yields</strong>, and the retry loop (which retries only on deadlock/lock-timeout/serialization codes) tries again. Schema management yields to live work, never the reverse.</p>
+
+  <p>One export is a small masterclass in preventing drift: <code>CASE_TABLES</code>, the list of per-case tables in child-first deletion order, exists so a consumer that sweeps per-case rows (a console's purge, a test harness) iterates it "instead of keeping a private copy that goes stale the release a table is added". The one answer to "which tables does the framework own", outside the DDL itself.</p>
+
+  <h2><span class="kicker">engine/compute.ts</span>The pure core the load feeds</h2>
+
+  <p>Lesson 1 noted that <code>Engine.affordances</code> is "load, then a pure function". Here is the pure function, and it is exactly a filter over Lesson 4's fan-out:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/engine/compute.ts — computeAffordances</figcaption>
+<pre>for (const stepDefinition of definition.steps) {
+  const { targets, failure } = selectTargets(stepDefinition, snapshot.state)
+  if (failure !== null) {
+    blocked.push(scopeFailureEntry(stepDefinition.name, asOf, failure.reason))
+    continue                          <span class="cm">// a defective selector blocks one step, not the listing</span>
+  }
+  for (const target of targets) {
+    const evaluation = evaluateTarget(target, { actor: ctx.actor, asOf })
+    const scopeKey = target.binding?.key
+    if (evaluation.available)
+      affordances.push(toAffordance(stepDefinition, scopeKey))
+    else blocked.push(toBlocked(stepDefinition.name, evaluation, scopeKey))
+  }
+}</pre>
+  </figure>
+
+  <p>Everything in the loop is machinery you already know: <code>selectTargets</code> (Lesson 4), <code>evaluateTarget</code> → <code>evaluateGuard</code> (Lesson 2), the <code>$scope</code> blocked entry (Lesson 4). The listing invents nothing — that is the point. Blocked entries carry <code>possible</code>/<code>permitted</code> so "not yet" and "not you" stay mechanically distinct all the way to the wire.</p>
+
+  <p><code>computeExplanation</code> is the same machinery pointed at one step, loud where the listing is lenient — with the one exception Lesson 4 flagged: a defective selector is <em>answered</em> (as the <code>$scope</code> evaluation), because the listing published exactly that blocked entry with an explain link, and a published link must be followable.</p>
+
+  <p>The subtlest code in the file is the boundary normalization, <code>explainContext</code> — the one place where "no actor" is interpreted:</p>
+
+  <figure class="code">
+    <figcaption>packages/core/src/engine/compute.ts</figcaption>
+<pre><span class="cm">/**
+ * - An **absent** `actor` key means the requires-only probe (NO_ACTOR —
+ *   `permits` conditions are reported un-evaluated). A key that is
+ *   *present but `undefined`* is an actor like any other: the caller said
+ *   who is asking, and the answer is about them.
+ * - `asOf` defaults through `now` — the clock stops here; everything below
+ *   is pure.
+ */</span>
+actor: ('actor' in request ? request.actor : NO_ACTOR) as TActor,</pre>
+  </figure>
+
+  <p>Absent-vs-<code>undefined</code> distinctions are usually accidents; here the distinction is the specification, stated where it is implemented and tested beside the pure computation it feeds. When you review boundary code in this repo, this is the bar: every normalization written down, in one place, with its reasoning.</p>
+
+  <h2><span class="kicker">Check yourself</span>Retrieval practice</h2>
+  <div id="quiz"></div>
+
+  <h2><span class="kicker">Next</span>Where this goes</h2>
+  <p>Lesson 6 covers the two subsystems that run steps with nobody at the keyboard — ingestion (dedup, correlation, dead letters) and migration — both as filters over Lesson 3's system runner.</p>
+
+  <footer class="lesson-footer">
+    <p><strong>Primary source:</strong> the DDL comment block in <code>packages/core/src/store/bootstrap.ts</code> — the whole persistence model in one annotated listing — and the header of <code>store/resolve.ts</code> for the loud/lenient read pair.</p>
+    <p>Anything unclear, or an excerpt you want expanded to its full file? Ask the teaching agent.</p>
+  </footer>
+</main>
+
+<script>
+/* Quiz widget shared by all lessons.
+ *
+ * Usage in a lesson:
+ *   <div id="quiz"></div>
+ *   <script src="../assets/quiz.js">< /script>
+ *   <script>
+ *     renderQuiz(document.getElementById('quiz'), [
+ *       { q: 'Question text?',
+ *         choices: ['A', 'B', 'C', 'D'],
+ *         answer: 2,                       // index into choices
+ *         explain: 'Shown after answering.' },
+ *     ])
+ *   < /script>
+ *
+ * Feedback is immediate: click a choice, it locks, correct/wrong is shown,
+ * and the explanation appears. No score, no persistence — retrieval practice.
+ */
+'use strict'
+
+function renderQuiz(container, questions) {
+  container.classList.add('quiz')
+  questions.forEach(function (question, index) {
+    const box = document.createElement('div')
+    box.className = 'quiz-question'
+
+    const heading = document.createElement('h4')
+    heading.textContent = (index + 1) + '. ' + question.q
+    box.appendChild(heading)
+
+    const buttons = []
+    question.choices.forEach(function (choice, choiceIndex) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'quiz-choice'
+      button.textContent = choice
+      button.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.disabled = true })
+        buttons[question.answer].classList.add('is-correct')
+        if (choiceIndex !== question.answer) button.classList.add('is-wrong')
+        if (question.explain) {
+          const explain = document.createElement('p')
+          explain.className = 'quiz-explain'
+          explain.textContent = question.explain
+          box.appendChild(explain)
+        }
+      })
+      buttons.push(button)
+      box.appendChild(button)
+    })
+
+    container.appendChild(box)
+  })
+}
+</script>
+<script>
+renderQuiz(document.getElementById('quiz'), [
+  {
+    q: 'Why does DatabaseAccess make the caller declare pool vs client?',
+    choices: [
+      'Sniffing the object is unreliable across pg versions',
+      'Transactions must know whether begin needs a checkout',
+      'Pools and clients return different row shapes',
+      'The engine pools connections itself otherwise',
+    ],
+    answer: 1,
+    explain: 'A pool multiplexes — begin on it would scatter statements across connections. The declaration tells withTransaction whether to check out a client first; nothing downstream guesses.',
+  },
+  {
+    q: 'What enforces "one in-flight execution per case"?',
+    choices: [
+      'The claims table’s primary key on case_id',
+      'An advisory lock taken by every claimant',
+      'The engine’s in-memory registry of claims',
+      'A unique index on journal execution ids',
+    ],
+    answer: 0,
+    explain: 'The serialization rule is a table constraint: one claims row per case_id can exist, and claim/commit both decide under the case row’s lock.',
+  },
+  {
+    q: 'Why does resolveStoredState return { state } | null instead of state | null?',
+    choices: [
+      'A valid case state may itself be null',
+      'Object wrappers survive JSON round-trips',
+      'The sweep needs a place to attach errors',
+      'It matches the pg driver’s row envelope',
+    ],
+    answer: 0,
+    explain: 'The lenient read absorbs validation failure as null — but null is also a legitimate state document, so the verdict is wrapped to keep "unreadable" and "validly null" distinct.',
+  },
+  {
+    q: '"Idempotent is not the same as harmless" refers to what?',
+    choices: [
+      'Re-running a handler with the same execution id',
+      'Create-if-not-exists still taking table locks',
+      'Re-inserting a journal row with the same id',
+      'Re-registering a correlation for one envelope',
+    ],
+    answer: 1,
+    explain: 'The DDL is safe to re-run, but `create index if not exists` locks the table even with nothing to do — so bootstrap checks the schema version first and takes no locks in the common case.',
+  },
+  {
+    q: 'In explainContext, what does an actor key that is present but undefined mean?',
+    choices: [
+      'The requires-only probe, same as omitting it',
+      'A caller bug, rejected with a TypeError',
+      'An actor like any other; permits run against it',
+      'The operator identity, with full visibility',
+    ],
+    answer: 2,
+    explain: 'Only an absent key means the NO_ACTOR probe. Present-but-undefined means the caller said who is asking — and permits conditions must be total over whatever an actor turns out to be.',
+  },
+])
+</script>
+</body>
+</html>
