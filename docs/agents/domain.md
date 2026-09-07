@@ -1,5 +1,7 @@
 # Domain Docs
 
+Updated: 2026-09-06
+
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
 This repo uses the **single-context** layout: one `CONTEXT.md` and one `docs/architecture.md` at the root.
@@ -49,4 +51,4 @@ If the concept you need isn't in the glossary yet, that's a signal — either yo
 
 If your output contradicts `docs/architecture.md`, surface it explicitly rather than silently overriding:
 
-> _Contradicts the rule that time enters guards only via declared combinators — but worth reopening because…_
+> _Contradicts the rule that conditions are synchronous and free of I/O; this proposal would need an explicit change to that boundary because…_

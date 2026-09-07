@@ -1,28 +1,62 @@
 {
   "name": "@affordance/core",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "author": "Mochicode LLC (https://mochicode.com)",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "node ../../scripts/build-package.mjs",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
     "@affordance/contract": "workspace:*",
     "@standard-schema/spec": "^1.1.0",
-    "pg": "^8.13.1",
-    "zod": "^4.4.3"
+    "@types/pg": "^8.11.10"
   },
   "devDependencies": {
     "@affordance/testkit": "workspace:*",
     "@types/node": "^24.0.0",
-    "@types/pg": "^8.11.10",
     "typescript": "^5.7.2",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "pg": "^8.13.1",
+    "zod": "^4.4.3"
+  },
+  "description": "Adaptive case management with guarded steps, async execution, and a Postgres journal.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mochicodecom/affordance.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/mochicodecom/affordance#readme",
+  "bugs": {
+    "url": "https://github.com/mochicodecom/affordance/issues"
+  },
+  "keywords": [
+    "affordance",
+    "case-management",
+    "typescript",
+    "postgres"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

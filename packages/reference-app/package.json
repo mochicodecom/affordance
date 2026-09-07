@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "author": "Mochicode LLC (https://mochicode.com)",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",

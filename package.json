@@ -2,7 +2,7 @@
   "name": "affordance",
   "private": true,
   "author": "Mochicode LLC (https://mochicode.com)",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "engines": {
@@ -15,13 +15,18 @@
     "vitest": "^3.2.0"
   },
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks",
+    "prepare": "pnpm build && git config core.hooksPath .githooks",
     "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "typecheck": "pnpm -r run typecheck",
-    "test": "vitest run",
+    "typecheck": "pnpm build && pnpm -r run typecheck",
+    "test": "pnpm build && vitest run",
     "db:up": "docker compose up -d --wait postgres",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "build": "pnpm -r --filter @affordance/contract --filter @affordance/core --filter @affordance/http run build",
+    "release:pack": "pnpm build && node scripts/release/pack.mjs",
+    "release:smoke": "node scripts/release/smoke.mjs",
+    "release:check": "pnpm lint && pnpm typecheck && pnpm --filter @affordance/reference-app ui:build && pnpm test && pnpm release:pack && pnpm release:smoke",
+    "release:publish": "node scripts/release/publish.mjs"
   }
 }

@@ -1,171 +1,144 @@
 # Affordance
 
-**The engine computes the steps that are available on a case, now, for one
-actor. No person declares a flow.**
+Updated: 2026-09-06
 
-Affordance is a code-first framework for adaptive case management. A case is a
-long-lived business matter: a house purchase, a claim, an onboarding, a
-dispute. The framework computes the available next steps from guards over the
-case state. It does not read them from a flow that a person drew.
+**Compute what a case can do now, for a particular actor.**
+
+Affordance is a TypeScript library for adaptive case management: purchases,
+claims, onboarding, and other matters with several independent concerns and
+changing requirements. It runs inside your application and stores case state
+and execution records in your Postgres database.
 
 ## The problem
 
-Each team that models a real business process writes code such as this:
+An FSM or workflow works well when the order of work is stable. A purchase with
+multiple buyers, verification, signatures, and funding often needs more
+flexibility. Encoding their combinations as process positions makes exceptions
+harder to add and leaves you deciding where in-flight cases belong after a
+process change.
 
-```ts
-if (case.status === 'awaiting_verification' && case.buyer.verificationCleared && !case.agreementSent) {
-  // …and forty more branches, in three files, drifting apart
-}
-```
-
-This code operates until the process changes. A status column is a program
-counter. When the process changes, each in-flight row points at a position
-that is now wrong. You must then correct the status column of each row by
-hand.
-
-A workflow engine with a declared graph is the heavy alternative. It moves the
-program counter into the engine. But each deploy asks the same question: where
-is this in-flight case in the new structure? A case can stay open for months.
-Then only two answers are possible: keep each old version of the process live
-until its last case ends, or do manual migration on live cases.
-
-## The idea
-
-**Do not store the position of a case. Compute what the case can do.**
+Affordance uses a smaller model: **a case is a persisted object with state and
+independently guarded steps.** Each step describes when it is possible, who may
+execute it, and how it changes state. Steps become available through those
+facts, without a predefined ordering.
 
 ```mermaid
 flowchart LR
-  S["Case State<br/>the only thing stored"] --> E{{"evaluate every<br/>step's guard"}}
-  A["Actor<br/>who is asking"] --> E
-  E -->|"every condition holds"| AF["affordances<br/>what you can do now"]
-  E -->|"a condition failed"| BL["blocked<br/>the named reasons why not"]
+  State["Case state"] --> Guards["Evaluate step guards"]
+  Actor["Actor"] --> Guards
+  Guards --> Available["Affordances"]
+  Guards --> Blocked["Blocked steps + reasons"]
+  Available --> Execute["Caller executes a step"]
+  Execute --> State
+  Execute --> Journal["Journal"]
 ```
 
-A case type declares two things: a state schema and a set of steps. Each step
-has its own guard. There is no flow, no stage, no graph, and no status field.
-There is also no completion test, because completion is a fact in the case
-state. The only position of a case is its case state. The engine computes the
-available steps on demand:
+## What the engine does
+
+Given an engine configured with your case types and database:
 
 ```ts
-// Bind the step author to the state schema, one time per case type.
-// Every condition, selector, and handler below gets its types from it.
-const purchaseStep = stepsOf(PurchaseState, actor<PurchaseActor>())
+const { affordances, blocked } = await engine.affordances(caseId, actor)
+// affordances: [{ step: 'commit-funds', scopeKey: 'buyer-7' }]
+// blocked: steps this actor cannot take, with named unmet conditions
 
-const escalateVerification = purchaseStep({
-  name: 'escalate-verification',
-  // one affordance per buyer under review — not one per case
-  scope: { select: s => s.buyers.filter(b => b.verification.status === 'review'),
-           key: b => b.id },
-  permits: { isEscrowOfficer },
-  handler: async (s, ctx) => ({ /* …the next state… */ }),
+await engine.execute(caseId, 'commit-funds', {
+  actor,
+  scopeKey: 'buyer-7',
+  input: { amount: 250_000 },
 })
+
+const entries = await engine.journal(caseId, { scopeKey: 'buyer-7' })
 ```
 
-Ask the engine what a case can do, as one actor:
+- **Scope and permissions:** one step can produce separate affordances for each
+  buyer, document, or payment. `requires` checks the case; `permits` checks the actor.
+- **Async execution:** claim the case, run the handler outside a database
+  transaction, then commit state and journal together. Executions serialize per
+  case; external effects must tolerate retries.
+- **Recorded decisions:** the journal preserves the actor, input, claim-time
+  guard results and state, committed changes, and failures. Reads and refused
+  claims are not journal entries.
+- **Changing definitions:** deployed steps apply to existing cases when their
+  state remains compatible. State restructuring has a journaled migration API.
+- **Optional HTTP:** the adapter adds execute links, input descriptions, and
+  explanations so a UI, script, or agent can discover available work.
 
-```ts
-const { affordances, blocked } = await engine.affordances(caseId, escrowOfficer)
+Start with the [introduction](docs/tutorial/README.md) for a complete case type,
+code examples, and the execution model.
 
-// affordances → [{ step: 'escalate-verification', scopeKey: 'buyer_007', input: … }]
-// blocked     → [{ step: 'close-purchase', possible: false, permitted: true,
-//                  unmet: [{ name: 'allSigned', reason: '2 buyers have not signed' }] }]
+## Install
+
+The public packages ship ESM JavaScript and TypeScript declarations for Node
+22.12+. The engine uses your Postgres connection and accepts Standard Schema
+validators such as Zod.
+
+```bash
+npm install @affordance/core pg zod
+# Optional HTTP API and Hono binding:
+npm install @affordance/http
+# For clients that only need the wire types:
+npm install @affordance/contract
 ```
 
-The `blocked` array is as important as the `affordances` array. Each condition
-has a name. When a person asks "why can I not close this purchase?", the
-engine answers with those names, in the words of the domain. An engineer does
-not have to read the code to give the answer.
+See the [core package example](packages/core/README.md) for database and engine
+setup. The reference app and testkit remain private workspace packages.
 
-## What you get
+## Run the reference app
 
-The engine stores no position, and each guard is pure and structured. These
-results follow:
-
-- **A process change is a deploy.** Change the step definitions. The new
-  definitions immediately govern each in-flight case. No case migrates. When a
-  new step or condition ships, the correct affordances become available on
-  each case, at each position, at that moment.
-- **Every execution has an actor.** A person takes an affordance. An external
-  system's event executes a step through ingestion. Time is an external system
-  too: a scheduler outside the engine executes a step such as "mark overdue"
-  like any other caller. The framework never runs a step of its own accord,
-  so the journal always names who acted.
-- **The audit is exact.** Each execution journals the guard evaluation and the
-  case state that the guard read. The journal answers "why was this step
-  available last Tuesday?" from that record. The engine never derives the
-  answer again through today's code.
-- **A machine can read the HTTP contract.** Each affordance carries its own
-  execute link and its own input schema. A client needs no other knowledge of
-  the process: a UI, a script, or an agent that uses the affordances as a tool
-  list operates from the payload alone. Each refusal carries a code from a
-  closed set, so a client can branch on all of the codes.
-- **Visibility is one rule.** A read tells a caller only what the visibility
-  allows. With `permitted`, the default, no `permits` result and no case state
-  goes on the wire. With `all`, an operator gets the full view. The engine
-  applies the one rule to every outbound payload.
-
-## Try it
-
-You need Node 22+, pnpm, and Docker (for Postgres).
+You need Node 22.12+, pnpm, and Docker for local Postgres. From the repository root:
 
 ```bash
 pnpm install
 pnpm db:up
+pnpm --filter @affordance/reference-app ui:build
+pnpm --filter @affordance/reference-app serve
+```
+
+Open `http://localhost:8787/`. Create a purchase in the console, take steps as
+different actors, and deliver mock provider events. The server starts with no
+seeded cases. See the [reference app guide](packages/reference-app/README.md)
+for the exception paths and development options.
+
+```bash
+pnpm lint
+pnpm typecheck
 pnpm test
 ```
 
-Linting and formatting are [Biome](https://biomejs.dev), and they gate every
-commit: `pnpm install` points git at `.githooks/`, whose pre-commit hook
-refuses staged files Biome would reject, and CI runs the same check. Most
-complaints fix themselves with `pnpm lint:fix`.
+The test suite includes Postgres tests. Biome checks formatting and linting;
+`pnpm install` builds the public packages and configures the repository's
+pre-commit hook to check staged files. Run `pnpm build` after changing a library
+while using the reference app. Root test and typecheck commands rebuild first.
 
-Open the demo console. Build it one time, then serve:
+Run `pnpm release:check` to also pack all three libraries and install them in an
+isolated TypeScript consumer that exercises Postgres and HTTP. See the
+[release guide](docs/releasing.md) for publishing and trusted publisher setup.
 
-```bash
-pnpm --filter @affordance/reference-app ui:build   # one time, and after ui/ changes
-pnpm --filter @affordance/reference-app serve      # console at /
-```
+## Packages and docs
 
-The server seeds nothing — a case exists only when someone creates one
-through the API. The acceptance tests stage their own.
-
-The console is a cross-actor view of one purchase. Each lane acts as its own
-persona, and shows the affordances for that actor. One fixed observer persona
-makes the main read.
-
-## Layout
-
-| Package | What it is |
+| Package | Responsibility |
 | --- | --- |
-| `@affordance/core` | the engine: guards, steps, affordances, execution, journal, ingestion, migration |
-| `@affordance/contract` | the wire types of `affordance/v1`, with no dependencies — the one declaration that clients and adapters share |
-| `@affordance/http` | an optional adapter that serves the affordance JSON contract, with a hono binding |
-| `@affordance/reference-app` | a group house purchase, built for real: mock providers, exception paths as ordinary guarded steps, and the cross-actor demo console in `ui/` |
+| `@affordance/core` | Case types, guards, execution, persistence, journal, ingestion, and migration. |
+| `@affordance/contract` | Dependency-free types for `affordance/v1` clients and adapters. |
+| `@affordance/http` | Optional HTTP adapter and Hono binding. |
+| `@affordance/reference-app` | Group purchase with mock providers and a React console. |
+| `@affordance/testkit` | Shared Postgres test setup. |
 
-## Docs
+| Read… | For… |
+| --- | --- |
+| [Introduction](docs/tutorial/README.md) | The problem, mental model, and a small working example. |
+| [Vocabulary](CONTEXT.md) | The project's common language. |
+| [Architecture](docs/architecture.md) | Boundaries, guarantees, and tradeoffs. |
+| [HTTP contract](docs/affordance-contract.md) | Routes, payloads, visibility, and errors. |
+| [Migration](docs/migration.md) | Evolving stored state safely. |
+| [Releasing](docs/releasing.md) | Package checks, npm setup, and versioned releases. |
+| [Codebase map](docs/tutorial/reference/codebase-map.md) | Where to find each implementation. |
 
-- **[`CONTEXT.md`](CONTEXT.md)** — the vocabulary. Read this first. The code
-  uses these words precisely.
-- **[`docs/tutorial/`](docs/tutorial/README.md)** — four short lessons. They
-  take a developer from zero to a working case type. This is the *how*;
-  `docs/architecture.md` is the *why*.
-- **[`docs/architecture.md`](docs/architecture.md)** — how the engine is put
-  together, why, and the shape drawn as C4. About ten minutes.
-- **[`docs/affordance-contract.md`](docs/affordance-contract.md)** — the wire
-  format, `affordance/v1`.
-- **[`docs/migration.md`](docs/migration.md)** — the escape hatch, and when
-  you must not use it.
-- **[`packages/reference-app/README.md`](packages/reference-app/README.md)** —
-  the anchor use case in detail.
-
-## Non-goals
-
-These are absent, deliberately and permanently: replay-based durable
-execution, a server or hosted control plane, service-specific connectors, a
-framework UI, and multi-language SDKs. `docs/architecture.md` gives the reason
-for each one. They are choices, not gaps.
+Affordance supplies no scheduler, automatic step runner, durable handler
+suspension, hosted control plane, or production UI. The application owns those
+integrations and policies; the reference console is a development tool.
 
 ---
 
-© 2026 [Mochicode LLC](https://mochicode.com). All rights reserved.
+© 2026 [Mochicode LLC](https://mochicode.com). Licensed under [MIT](LICENSE).

@@ -1,108 +1,121 @@
 # Migrating case state
 
-Cases float to the latest definitions. A deploy changes the steps,
-and every in-flight case is governed by the new ones from that moment — no
-migration, no version pin, no in-flight case stuck on the definitions it
-started under. That is the posture. This document is about the exception.
+Updated: 2026-09-06
 
-## The default: write a total condition
+Changing available work usually means deploying new step definitions. Changing
+the stored document may also need a migration. These are separate concerns:
+cases have no process position to move, but their state must still satisfy the
+schema registered by the running engine.
 
-Conditions and selectors are **total over historical state**: they will be
-evaluated against documents written before they existed, and they must handle
-that deliberately rather than by accident. In practice that is the `??`
-fallback:
+## Choose the smallest change
+
+| Change | Approach |
+| --- | --- |
+| New step or condition | Deploy it; existing compatible cases are evaluated against it. |
+| Optional field | Accept absence in the schema and handle it in conditions and selectors. |
+| Required field with a valid default | Add a schema default; it applies on read and is persisted on a later write. |
+| Rename, split, or changed representation | Read both shapes during rollout; migrate when you need stored rows normalized. |
+| Changed scope keys | Plan how old journal entries and correlations retain their meaning. A state migration alone does not rewrite them. |
+
+A fallback in a condition cannot rescue a document rejected by its schema.
+Validate stored examples against the transitional schema before deploying it.
+
+## Example: rename a collection
+
+Suppose the existing `ownership` case type is changing `buyers` to `coOwners`.
+Register a schema accepting both during the transition, and keep conditions,
+selectors, and handlers compatible with both. This minimal example preserves
+other fields through `z.looseObject`:
 
 ```ts
-requires: {
-  splitFinal: s => s.split?.confirmed ?? false,
-  inspected:  s => (s.property?.inspectionReportId ?? null) !== null,
+import { z } from 'zod'
+
+const Owner = z.object({ id: z.string(), name: z.string() })
+const OwnershipState = z.looseObject({
+  buyers: z.array(Owner).optional(),
+  coOwners: z.array(Owner).optional(),
+})
+type Ownership = z.infer<typeof OwnershipState>
+
+const ownersOf = (s: Ownership) => s.coOwners ?? s.buyers ?? []
+
+const renameBuyers = (s: Ownership): Ownership => {
+  const { buyers, ...rest } = s
+  return { ...rest, coOwners: s.coOwners ?? buyers ?? [] }
 }
 ```
 
-Almost every change is additive, and additive changes need nothing else:
+Use `ownersOf` wherever steps read the collection. The transform preserves
+owner IDs, removes the old key, and remains safe if a case already has the new
+shape. In a real case type, retain its existing field schemas and constraints.
 
-| Change | What to do |
-| --- | --- |
-| A new optional field | Read it with `?? fallback`. Nothing to migrate. |
-| A new step | Add it. In-flight cases can take it immediately. |
-| A new condition on an existing step | Add it. Cases that fail it are blocked, with the condition named in `explain` — which is the correct answer, not a problem to fix. |
-| A new required field, with a sensible default | Give the schema a `.default(...)`. Old documents acquire it on read. |
-| A field that changed meaning but not shape | Read both meanings in the condition, while both exist in the wild. |
-
-If a total condition can read the old shape, **write the total condition**.
-It costs one expression, it needs no coordination with a deploy, and it
-leaves no execution history behind. A migration costs a run over every case,
-a journal entry each, and a permanent artifact in the audit record.
-
-## The exception: a restructure
-
-Some changes are not readable by any expression over the old document:
-
-- a field **renamed** (`s.buyer` → `s.coOwner`)
-- one field **split into two** (`s.name` → `s.firstName` + `s.lastName`)
-- a scalar that became a **collection** (`s.buyer` → `s.buyers[]`)
-- a collection whose **element identity** changed (keys re-derived — and scope
-  keys are affordance identity, so this one is not optional)
-
-For these, run a migration. The test is not "would a migration be tidier" but
-"is the old shape still readable at all".
-
-## Running one
+With an `engine` serving that transitional `ownership` definition, preview the
+migration and inspect the per-case deltas:
 
 ```ts
-const report = await engine.migrate(
-  'house-purchase',
-  '2026-08-rename-buyer-to-co-owner',
-  (s: any) => ({ ...s, coOwners: s.buyers ?? [], buyers: undefined }),
-  { batchSize: 200, onProgress: p => console.log(p.processed, p.caseId, p.outcome) },
-)
+const migrationName = 'rename-buyers-to-co-owners'
+const preview = await engine.migrate('ownership', migrationName, renameBuyers, {
+  dryRun: true,
+  includeEnded: true,
+  onProgress: ({ caseId, delta, error }) => console.log(caseId, delta, error),
+})
 ```
 
-What happens per case: the ordinary claim → run → commit, under a synthetic
-step named `migrate:<name>`, with a migration actor. The case row is locked,
-an in-flight Execution blocks it (and is retried next run), the result is
-validated against the state schema, and a `completed`
-journal entry records the delta.
+A dry run computes deltas without claims, writes, or journal markers. It does
+**not** validate the transformed result against the schema, and it cannot prove
+that a real execution can acquire the case. Validate transform outputs
+separately; an unreadable stored document can reach a dry-run transform even
+though a real migration would fail before invoking it.
 
-Properties worth knowing:
+Once the preview and schema checks pass, run one migration runner:
 
-- **Idempotent.** The marker is the journal entry, not a flag in state. A case
-  bearing a completed `migrate:<name>` entry is never examined again.
-- **Resumable.** Interrupt it, run it again; it continues from where it
-  stopped, because the marker is per case.
-- **Non-fatal.** A case that fails — busy, transform threw, result rejected by
-  the schema — is reported in `report.failed` and the run continues. It has no
-  marker, so the next run retries it.
-- **Auditable.** `engine.journal(caseId)` shows the migration among everything
-  else that ever happened to the case, with its delta. Reconstruction
-  `asOf` before and after the entry shows the two shapes.
-- **Dry-runnable.** `{ dryRun: true }` computes every delta and writes
-  nothing, leaving no marker.
+```ts
+const report = await engine.migrate('ownership', migrationName, renameBuyers, {
+  batchSize: 200,
+  includeEnded: true,
+  onProgress: ({ processed, caseId, outcome }) =>
+    console.log(processed, caseId, outcome),
+})
+console.log(report.migrated, report.unchanged, report.failed)
+```
 
-## Writing the transform
+## What commits
 
-The transform is code that must be **total**, exactly like a condition: it
-will be handed documents written by every definition the case has floated
-through, including ones the current schema barely recognizes.
+```mermaid
+flowchart LR
+  Scan["Select cases without completed marker"] --> Claim["Claim and validate stored state"]
+  Claim --> Transform["Run pure transform"]
+  Transform --> Validate["Validate next state"]
+  Validate --> Commit["Commit state + journal marker"]
+  Claim -->|"busy or invalid"| Failure["Report failure and continue"]
+  Validate -->|"invalid"| Failure
+```
 
-- Returning the input unchanged must be safe. The run journals it as an
-  unchanged case and marks it, which is what makes "this migration considered
-  this case and had nothing to do" provable later.
-- Never assume the *previous* migration ran. Order is not guaranteed across a
-  fleet mid-deploy; check the shape, not the history.
-- Keep it pure. It is a state transform, not a place to call an API — if the
-  new shape needs a fact from outside, materialize that fact with an ordinary
-  step first and migrate afterwards.
+Each case runs an ordinary execution under `migrate:<name>`, with a migration
+actor and one attempt. The step has no business guard and is not exposed as an
+affordance. Its completed journal entry is the migration marker.
 
-## Deploying one
+- A completed marker skips that case on later runs of the same name, even if
+  the transform would now produce a different result. Use a new name for a new change.
+- An unchanged result still commits and receives a marker.
+- Busy cases, invalid stored or returned state, and throwing transforms appear
+  in `report.failed`. They have no completed marker and can be retried later.
+- `caseIds` and `limit` can restrict a run. Dormant cases are excluded unless
+  `includeEnded: true`; include them before removing compatibility for old state.
+- Transforms must be pure and preserve unrelated fields. External work belongs
+  in ordinary steps. Database failures during scanning can still abort the run.
 
-1. Deploy definitions that read **both** shapes (`s.coOwners ?? s.buyers
-   ?? []`). Nothing breaks while cases are mixed.
-2. Run the migration. Cases restructure one at a time, and the running app
-   keeps serving throughout.
-3. Once `report.failed` is empty and `scanned` reaches zero on a re-run, drop
-   the old-shape reads from the definitions.
+## Roll out the schema change
 
-The two-shape window is what makes step 2 uneventful. Skipping it means the
-app is briefly wrong for every case the migration has not reached yet — which
-is the failure mode that makes migrations feared.
+1. Deploy a schema and steps that accept both representations.
+2. Ensure every running writer uses the new representation before removing the
+   old one from stored rows; old processes must not restore it after migration.
+3. Preview and validate outputs, then migrate. Resolve failures and rerun with
+   the same name and intended scope.
+4. Confirm coverage, including dormant cases, and inspect representative stored
+   documents. A zero-candidate rerun checks markers, not the shape of later writes.
+5. Deploy the final schema and remove the old-field fallback.
+
+The journal retains the claimed state and committed delta for each migration.
+`asOf` reads do not reconstruct historical state. See
+[architecture](architecture.md) for the execution and audit guarantees.

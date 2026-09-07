@@ -1,23 +1,26 @@
 {
   "name": "@affordance/http",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "author": "Mochicode LLC (https://mochicode.com)",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "node ../../scripts/build-package.mjs",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
     "@affordance/contract": "workspace:*",
     "@affordance/core": "workspace:*",
     "@standard-schema/spec": "^1.1.0",
-    "hono": "^4.13.0",
-    "pg": "^8.13.1"
+    "hono": "^4.13.0"
   },
   "devDependencies": {
     "@affordance/testkit": "workspace:*",
@@ -25,6 +28,37 @@
     "@types/pg": "^8.11.10",
     "typescript": "^5.7.2",
     "vitest": "^3.2.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "pg": "^8.13.1"
+  },
+  "description": "HTTP API and Hono binding for the Affordance case engine.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mochicodecom/affordance.git",
+    "directory": "packages/http"
+  },
+  "homepage": "https://github.com/mochicodecom/affordance#readme",
+  "bugs": {
+    "url": "https://github.com/mochicodecom/affordance/issues"
+  },
+  "keywords": [
+    "affordance",
+    "case-management",
+    "typescript",
+    "postgres"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

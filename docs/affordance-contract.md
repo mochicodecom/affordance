@@ -1,319 +1,305 @@
-# The affordance JSON contract — `affordance/v1`
+# HTTP contract: `affordance/v1`
 
-This is the wire format for "what can happen on this case, for this actor,
-right now". It is where the HATEOAS bet becomes concrete: the response is not
-a rendering of a case, it is the set of things the caller can do next, each
-one carrying what it needs to be done. A client — a UI, a script, or an agent
-consuming it as a tool list — should never need out-of-band knowledge of the
-process to know what to offer.
+Updated: 2026-09-06
 
-Every payload carries `"contract": "affordance/v1"`. The version changes
-only on a breaking change; new optional fields are additive and do not.
+A client needs to discover what it can do on a case without encoding the
+process itself. The optional HTTP adapter returns affordances with input
+descriptions and links to execute or explain them. Every contract payload
+includes `"contract": "affordance/v1"`.
 
-## Resources
+The authoritative types are in
+[`@affordance/contract`](../packages/contract/src/index.ts). The
+[router](../packages/http/src/api.ts) validates requests; the
+[serializers](../packages/http/src/contract.ts) construct responses. The host
+owns authentication and access to cases, journals, and event endpoints.
 
-| Method | Path | Returns |
+## Routes
+
+Paths are relative to the configured mount point, such as `/api`. Returned
+`href` values include that prefix. Follow them instead of reconstructing paths.
+
+| Method | Path | Response |
 | --- | --- | --- |
-| `GET` | `/cases/{id}/affordances[?asOf=]` | the affordance payload |
-| `GET` | `/cases/{id}/affordances/{step}[?scopeKey=&asOf=]` | the full per-condition explanation of one step |
-| `POST` | `/cases/{id}/steps/{step}` | the execution result, or the unmet conditions |
-| `GET` | `/cases/{id}/journal[?scopeKey=&step=&entry=&since=&limit=]` | journal entries, oldest first |
-| `POST` | `/cases` | a created case |
-| `POST` | `/events` | the ingestion result for one external event |
-| `GET` | `/dead-letters[?system=&caseId=&limit=]` | the dead-letter surface, newest first |
+| `POST` | `/cases` | `201`, initial affordance payload for the created case. |
+| `GET` | `/cases/{id}/affordances` | `200`, available and visible blocked steps. |
+| `GET` | `/cases/{id}/affordances/{step}` | `200`, condition results for one step. |
+| `POST` | `/cases/{id}/steps/{step}` | `201`, committed execution, or an error. |
+| `GET` | `/cases/{id}/journal` | `200`, journal entries oldest first. |
+| `POST` | `/events` | `200`, recorded delivery outcome. |
+| `GET` | `/dead-letters` | `200`, dead letters newest first. |
 
-Paths are relative to the mount point; every `href` in a payload is absolute
-from the same mount point, so a client follows links and never builds URLs.
+| Read endpoint | Optional query parameters |
+| --- | --- |
+| Affordances | `asOf` |
+| Explanation | `scopeKey`, `asOf` |
+| Journal | `scopeKey`, `step`, `executionId`, `entry`, `since`, `limit` |
+| Dead letters | `system`, `caseId`, `limit` |
 
-## The affordance payload
+`entry` accepts comma-separated journal entry kinds. `since` is an exclusive
+journal ordinal cursor; `since` and `limit` must be non-negative integers.
+
+## Create and discover
+
+Using the case type from the [introduction](tutorial/README.md):
+
+```http
+POST /api/cases
+Content-Type: application/json
+
+{
+  "caseType": "tutorial-purchase",
+  "state": {
+    "buyers": [{ "id": "alice", "committedAmount": null }],
+    "titleReportId": null,
+    "closedAt": null
+  }
+}
+```
+
+The host supplies the actor separately. If that actor is Alice, the initial
+payload has this shape (IDs are illustrative):
 
 ```json
 {
   "contract": "affordance/v1",
   "case": {
-    "id": "5f1b…",
-    "type": "house-purchase",
-    "asOf": "2026-08-05T12:00:00.000Z",
+    "id": "case:example",
+    "type": "tutorial-purchase",
+    "asOf": "2026-09-06T19:00:00.000Z",
     "endedAt": null
   },
   "affordances": [
     {
-      "step": "escalate-verification",
-      "scopeKey": "buyer_007",
-      "title": "Escalate a stalled verification",
-      "description": "Move a buyer whose verification sits in review into enhanced review.",
-      "input": { "required": false, "schema": null, "vendor": null },
-      "links": {
-        "execute": { "method": "POST", "href": "/cases/5f1b…/steps/escalate-verification" },
-        "explain": { "method": "GET", "href": "/cases/5f1b…/affordances/escalate-verification?scopeKey=buyer_007" }
-      }
-    }
-  ],
-  "blocked": [
-    {
-      "step": "close-purchase",
-      "title": "Close the purchase",
+      "step": "commit-funds",
+      "scopeKey": "alice",
+      "title": null,
       "description": null,
-      "possible": false,
-      "permitted": true,
-      "unmet": [
-        {
-          "name": "allBuyersSigned",
-          "section": "requires",
-          "kind": "condition",
-          "passed": false,
-          "reason": "2 buyers have not signed"
-        }
-      ],
+      "input": { "required": true, "schema": null, "vendor": "zod" },
       "links": {
-        "explain": { "method": "GET", "href": "/cases/5f1b…/affordances/close-purchase" }
+        "execute": {
+          "method": "POST",
+          "href": "/api/cases/case:example/steps/commit-funds"
+        },
+        "explain": {
+          "method": "GET",
+          "href": "/api/cases/case:example/affordances/commit-funds?scopeKey=alice"
+        }
       }
     }
   ],
+  "blocked": [],
   "links": {
-    "self": { "method": "GET", "href": "/cases/5f1b…/affordances" },
-    "journal": { "method": "GET", "href": "/cases/5f1b…/journal" }
+    "self": { "method": "GET", "href": "/api/cases/case:example/affordances" },
+    "journal": { "method": "GET", "href": "/api/cases/case:example/journal" }
   }
 }
 ```
 
-### `affordances[]`
+`scopeKey` is absent on unscoped affordances. `title` and `description` come from
+the step definition and are `null` when undeclared; a client can display
+`title ?? step`.
 
-A step the actor can take **now**. Identity is `(step, scopeKey)`: a scoped
-step contributes one entry per selected element (a buyer, a wire), and
-`scopeKey` is absent for an unscoped step. `input` describes what the execute
-call expects: `schema` is the step's input schema serialized by the host
-app's `describeInput` hook (JSON Schema, typically), `null` when the host did
-not supply one; `vendor` names the schema library that produced it.
+`input.required` means the step declares an input schema. The host's
+`describeInput` hook supplies its wire representation, usually JSON Schema.
+Without that hook, `schema` is `null` even though the engine still validates the
+input. The example above uses that default. With no input schema, the descriptor
+is `{ required: false, schema: null, vendor: null }`.
 
-`title` and `description` are the step definition's own words — a short human
-label and a what-and-when sentence, `null` when the definition declares none.
-They are why a client (a UI, or an agent reading this payload as a tool list)
-needs no out-of-band label table; `step` stays the identity, so a client
-renders `title ?? step`. Both fields also appear on `blocked[]` entries and
-on the explanation payload.
+## Execute and refresh
 
-An affordance is **advice, not a reservation**. Between rendering it and
-executing it, state can move and definitions can be deployed. The
-execute call re-evaluates the guard transactionally, and a rejection is the
-normal, expected outcome of that race — see below.
-
-### `blocked[]`
-
-A step that is not available, with the named conditions saying why.
-`possible: false` means an unmet `requires` — not possible on this case, for
-anyone. `permitted: false` means an unmet `permits` — possible, but not for
-this actor.
-
-**Visibility.** By default (`visibility: "permitted"`) the payload omits
-entries the actor is not permitted to take, and reports only unmet `requires`
-conditions on the entries it does include. Two reasons, both about not
-leaking:
-
-- Another buyer's affordances are not this buyer's business, and
-  listing them as "blocked" would disclose that they exist at all.
-- `permits` conditions encode internal policy — role names, thresholds,
-  approval hierarchies. Naming the ones a caller failed tells them how to
-  look like someone else.
-
-A host serving an internal ops console can pass `visibility: "all"` to see
-every blocked entry with its `permits` conditions named.
-
-### Reserved condition names
-
-One condition name in `unmet[]` (and in explanations) is the framework's
-own rather than the case type's, and `@affordance/contract` declares it —
-a client that switches on it imports the constant, never copies the
-string:
-
-- **`$scope`** (`SCOPE_FAILURE_CONDITION`) — a scoped step whose selector
-  failed over this Case State. The blocked entry carries no `scopeKey`
-  (fan-out itself failed), and following its `explain` link answers with
-  this same single condition rather than an error.
-
-### `asOf`
-
-Both read endpoints accept an `asOf` instant and evaluate the whole payload
-as of it. Only the instant moves: the evaluation always runs over the case's
-**current** state, and conditions never read a clock, so handing them a
-different instant is exact. That makes `asOf` a preview device — "what will
-be possible once that seven-day clock runs out" — not a time machine.
-
-It does not answer "what was possible last Tuesday": the state may have
-changed since Tuesday, and this read never rewinds state. That audit
-question belongs to the journal, whose `claimed` entries record the guard
-evaluation, the instant it was made as of, and the Case State it ran
-against.
-
-It is accepted on the **read** routes only. Executing a step as of a
-caller-chosen instant is how a caller talks their way past a time condition,
-so the execute route always claims as of now.
-
-### `case`
-
-`asOf` is the instant everything in the payload was evaluated as of.
-`endedAt` is the dormancy marker: the organisation has stopped spending
-attention on this case. It is never a freeze — a dormant case still computes
-affordances and still returns them, and un-ending is an ordinary step.
-
-There is deliberately **no `complete` field**, and no other verdict on whether
-the matter is finished. See below.
-
-### Knowing there is nothing left to do
-
-The contract answers "what can this actor do here" and nothing else, so "is
-this case done" is answered by reading what it already sent you.
-
-**Is there anything for me?** `affordances` is empty. That is the whole test.
-It is per-actor by design: a buyer whose track is finished sees an empty
-list on a purchase that is still running, which is the correct answer to the
-question they asked.
-
-**Is it empty because it is over, or because it is waiting?** Look at
-`blocked[]`. Every blocked step carries its unmet conditions with their
-stated reasons, so what the case is waiting on is data already in the
-payload.
-
-**Has the organisation filed this away?** `case.endedAt`.
-
-**Did the matter end well?** That is a domain fact, and the contract does not
-carry case state. A client that reads `purchase.closedAt` has re-acquired the
-out-of-band knowledge this format exists to remove. Outcomes reach a client
-through *which capabilities appear*: a purchase that offers `record-deed` has closed,
-because closing is what `record-deed` requires. A client that needs the underlying
-document is an app, and an app embeds the library.
-
-## Executing a step
+Follow the affordance's execute link. Include its scope key in the body for a
+scoped step; omit it for an unscoped step:
 
 ```http
-POST /cases/{id}/steps/{step}
+POST /api/cases/case:example/steps/commit-funds
 Content-Type: application/json
 
-{ "scopeKey": "buyer_007", "input": { "callAmount": 250000 } }
+{ "scopeKey": "alice", "input": { "amount": 100000 } }
 ```
 
-`201` with the execution result:
+A successful response describes the committed execution and links to fresh
+availability and that execution's journal entries:
 
 ```json
 {
   "contract": "affordance/v1",
   "execution": {
-    "executionId": "9a2c…",
-    "caseId": "5f1b…",
-    "caseType": "house-purchase",
-    "step": "issue-funding-call",
-    "scopeKey": null,
+    "executionId": "execution:example",
+    "caseId": "case:example",
+    "caseType": "tutorial-purchase",
+    "step": "commit-funds",
+    "scopeKey": "alice",
     "attempts": 1,
-    "seq": 4,
-    "delta": [{ "op": "add", "path": "/fundingCall", "value": { "amount": 250000 } }],
+    "seq": 1,
+    "delta": [{ "op": "replace", "path": "/buyers/0/committedAmount", "value": 100000 }],
     "dormancy": null,
     "endedAt": null,
-    "claimedAt": "2026-08-05T12:00:01.001Z",
-    "committedAt": "2026-08-05T12:00:01.412Z"
+    "claimedAt": "2026-09-06T19:00:01.001Z",
+    "committedAt": "2026-09-06T19:00:01.412Z"
   },
   "links": {
-    "affordances": { "method": "GET", "href": "/cases/5f1b…/affordances" },
-    "journal": { "method": "GET", "href": "/cases/5f1b…/journal?executionId=9a2c…" }
+    "affordances": { "method": "GET", "href": "/api/cases/case:example/affordances" },
+    "journal": { "method": "GET", "href": "/api/cases/case:example/journal?executionId=execution:example" }
   }
 }
 ```
 
-### Rejections
+Unscoped execution descriptors use `scopeKey: null`. Execution responses include
+the delta, not a full state snapshot or guard evaluation.
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant API as HTTP adapter
+  participant Engine
+  Client->>API: Read affordances as an authenticated actor
+  API-->>Client: Available work, input descriptions, links
+  Client->>API: Follow execute link with scope and input
+  API->>Engine: Execute with host-resolved actor
+  Engine->>Engine: Claim and recheck current guard
+  alt Execution commits
+    Engine-->>API: Committed result
+    API-->>Client: 201 with refresh links
+  else Guard changed or case busy
+    Engine-->>API: Refusal
+    API-->>Client: 409 with reason
+  end
+```
+
+A listing reserves nothing. Refresh after execution or a refusal; another actor
+may have changed the case. A second execute request gets a new execution ID, so
+blindly retrying after a lost response is not request-level deduplication.
+
+## Blocked steps, explanations, and visibility
+
+`possible` reports whether `requires` passed; `permitted` reports whether
+`permits` passed. Both can be false. Blocked entries carry `unmet` condition
+results; explanations carry all visible conditions, with every arm of an
+`anyOf` group. Conditions include `name`, `section`, `kind`, `passed`, and an
+optional `reason`.
+
+A scope selector failure is represented by the reserved `$scope` condition,
+exported as `SCOPE_FAILURE_CONDITION`. Its blocked entry has no scope key, and
+its explanation returns the same failure. Invalid or duplicate scope identities
+produce an error instead.
+
+| Surface | `permitted` (default) | `all` |
+| --- | --- | --- |
+| Blocked list | Only entries permitted for this actor. | Every blocked entry. |
+| Condition results | `requires` results only. | `requires` and `permits` results. |
+| Journal state snapshots | Omitted. | Included. |
+| Verdicts, deltas, actor, and input | Retained where present. | Retained where present. |
+
+Visibility filters fields; it is not case authorization or complete redaction
+of domain data. Journal inputs, deltas, and event details can contain sensitive
+facts. The host controls access to these resources and chooses visibility;
+`all` is intended for authorized operators.
+
+`case.endedAt` indicates dormancy. An empty affordance list means the actor has
+no work available now, not that the matter has completed. Outcomes belong to
+case state and can be exposed through an application-owned read model.
+
+### Evaluation time
+
+`asOf` is accepted on affordance and explanation reads and included in their
+evaluation records. Reads always use current state. Current conditions receive
+state and actor, with optional scope; they cannot read `asOf`, so changing it
+does not preview a timer or make a step available. The engine has no `after`
+combinator or scheduler.
+
+The HTTP execute route does not forward a caller's `asOf`; the engine supplies
+its current evaluation time. For past decisions, read claimed journal evidence.
+
+## Errors
+
+Framework errors carry a code declared by `REFUSAL_CODES` in the contract
+package. The adapter maps it to an HTTP status:
 
 | Status | `error` | Meaning |
 | --- | --- | --- |
-| `400` | `bad-request` | unknown step name, missing or unknown `scopeKey`, malformed body |
-| `404` | `not-found` | no such case (or case type) |
-| `409` | `step-not-available` | the guard said no — carries `possible`, `permitted`, `unmet` |
-| `409` | `case-busy` | another Execution holds the case, or took it over mid-handler; retry |
-| `422` | `invalid-input` | the input failed the step's schema — carries `issues` |
-| `500` | `execution-failed` | the handler failed after its retries |
-| `500` | `invalid-state` | the stored Case State no longer satisfies its schema |
+| `400` | `bad-request` | Unknown step, invalid scope address, or malformed request parameters. |
+| `404` | `not-found` | A requested case, case type, or route cannot be resolved. |
+| `409` | `step-not-available` | Current guard failed; includes `possible`, `permitted`, and `unmet`. |
+| `409` | `case-busy` | Another execution holds the claim, or this execution lost ownership. |
+| `422` | `invalid-input` | Step input failed its schema; includes `issues`. |
+| `500` | `execution-failed` | Handler or commit failed, including exhausted retries or invalid returned state. |
+| `500` | `invalid-state` | Case state failed validation, including initial or stored state. |
 
-**That table is the whole set.** `error` is not free text an adapter invents:
-the framework declares the kind of every refusal it raises, from exactly these
-seven codes, and the adapter maps kind to status. A client can therefore
-branch on `error` exhaustively, and a refusal an adapter has never heard of is
-not possible. The set's one declaration is `REFUSAL_CODES` in
-`@affordance/contract` — the engine's error taxonomy and this table both
-derive from it, so this prose can lag but cannot silently disagree with
-running code that imports the constant.
-
-The corollary matters as much. Anything that is *not* a refusal — a bug, a
-database that has gone away — is not translated into a contract payload at
-all; it propagates to the host, which is what a host's own error handling is
-for. A `500 execution-failed` means the handler ran and failed, and nothing
-else does.
-
-`409 step-not-available` is the mid-click race made legible, and it is the one
-every client must handle:
+For example, an officer trying to close before Alice commits receives:
 
 ```json
 {
   "contract": "affordance/v1",
   "error": "step-not-available",
-  "message": "step 'close-purchase' is not available on case 5f1b…",
+  "message": "step 'close-purchase' on case case:example is not available: allCommitted",
   "possible": false,
   "permitted": true,
-  "unmet": [{ "name": "allBuyersSigned", "section": "requires", "kind": "condition", "passed": false }],
-  "links": { "affordances": { "method": "GET", "href": "/cases/5f1b…/affordances" } }
+  "unmet": [
+    {
+      "name": "allCommitted",
+      "section": "requires",
+      "kind": "condition",
+      "passed": false,
+      "reason": "Every buyer must commit funds before closing"
+    }
+  ]
 }
 ```
 
-The `unmet` list obeys the same visibility rule as `blocked[]`: a caller who
-failed only `permits` is told `permitted: false` and nothing more.
+This example assumes the title report is already recorded. Error responses do
+not currently include refresh links; retain the listing's self link. Permission
+condition details follow the same visibility rule as explanations.
 
-## Explaining a step
+Errors outside the framework taxonomy propagate to the host's error handling.
+The host can also add its own authorization responses, such as the reference
+app's `403` for unauthorized case creation.
 
-`GET /cases/{id}/affordances/{step}` returns the full per-condition
-evaluation — every condition, passed and failed, with `anyOf` groups showing
-each arm. This is the
-"why can't I" endpoint; it is subject to the same visibility rule.
+## Journal
 
-A scoped step whose selector is defective answers with the single reserved
-`$scope` condition (see [Reserved condition names](#reserved-condition-names))
-instead of erroring: the listing published a blocked `$scope` entry with an
-`explain` link, and every link the contract hands out is followable.
+The response is `{ contract, entries }`, ordered by journal ordinal. Entry kinds
+are `claimed`, `attempt-failed`, `completed`, `failed`, and `expired`.
 
-## The journal
+A claim records the state and conditions used to permit execution. Completion
+records the state delta; failures record the attempt and error. Expiration is
+recorded when another execution takes over an abandoned claim. Reads, creation,
+and refused claims do not produce execution journal entries. Visibility controls
+which of that evidence the response includes.
 
-`GET /cases/{id}/journal` returns entries oldest-first, filterable
-by `scopeKey` (per-track audit), `step`, `executionId`, `entry`, `since`
-(cursor), and `limit`.
+## Events and dead letters
 
-The journal obeys the same visibility rule as every other read. A `claimed`
-entry stores the full guard evaluation and the Case State it ran against;
-that record is for the audit. Under `permitted` visibility the payload does
-not show it: `guard.conditions` omits every `permits` result (the
-`possible` / `permitted` verdicts stay), and `state` is omitted. Case State
-stays off the wire on every route, the journal included. Under
-`visibility: "all"` the operator gets the full record.
+`POST /events` accepts a normalized external event:
 
-## Webhook ingestion
+```json
+{
+  "system": "esign",
+  "externalId": "env-123",
+  "type": "envelope.completed",
+  "eventId": "delivery-123",
+  "payload": { "signedAt": "2026-09-06T19:00:00.000Z" }
+}
+```
 
-`POST /events` takes one external event and returns the ingestion result
-(`executed`, `duplicate`, or `dead-lettered` with a reason). It always
-answers `200` for an event it recorded, whatever became of it: a webhook
-endpoint that returns 5xx because a guard said no teaches the provider to
-retry something that will never succeed. Only an event the system could not
-even record is a 5xx.
+The correlation maps `(system, externalId)` to a case, scope, and optional step.
+An optional event `step` overrides the correlated step. `payload` becomes that
+step's validated input. The engine's ingestion actor mapping determines who
+executes it; the host authenticates the event source.
 
-On `executed`, the result carries the same `execution` object as the
-execute route. It never carries Case State or the guard evaluation. A
-`dead-lettered` reason is `unrouted`, `no-step`, or the refused Execution's
-own error code from the rejection table above.
+Deduplication uses an explicit `idempotencyKey` when supplied. Otherwise the key
+combines system, external ID, event type, and the event ID or a payload hash.
+`occurredAt` can record the provider's timestamp; it does not set claim time.
 
-## The dead-letter surface
+The response is `{ contract, ingestion }`, with status `executed`, `duplicate`,
+or `dead-lettered`. Executed results contain the same execution descriptor as
+the execute route. Dead-letter reasons are `unrouted`, `no-step`, or a framework
+error code; unexpected execution failures become `execution-failed`.
 
-`GET /dead-letters` returns ingested events that changed nothing, newest
-first, each with its reason and the event kept verbatim for replay. This is
-an **operator's read**: events carry other actors' payloads. Mount it the
-way you would serve `visibility: "all"` — on an internal path.
+A valid recorded delivery returns `200` regardless of outcome. Malformed events
+can return `400`; failures outside execution, such as persistence failures,
+propagate to the host. Redelivery after `case-busy` or `execution-failed` reopens
+the event for another attempt. Successful events and other dead-letter reasons
+remain deduplicated. There is no scheduled redelivery inside the engine.
 
-## Actors
-
-The framework never owns identity. The host app resolves the actor from
-the request — a session, a JWT, an API key, a service account — and hands it
-to the adapter; every condition, every journal entry, and every visibility
-decision uses that value verbatim. There is no user model, no role table, and
-no login endpoint anywhere in this contract.
+`GET /dead-letters` returns `{ contract, deadLetters }`, including original
+events and failure details. It is an operator surface, subject to host access
+control. Event bookkeeping and execution commit separately; consult the
+[architecture](architecture.md) for that boundary.

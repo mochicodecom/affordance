@@ -32,10 +32,4 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # `biome ci` is check-only and emits GitHub annotations on PRs.
-      - run: pnpm exec biome ci --error-on-warnings .
-      - run: pnpm typecheck
-      # The dev console serves ui/dist and refuses to pretend otherwise —
-      # the serving test needs a real build, exactly like a deployment.
-      - run: pnpm --filter @affordance/reference-app ui:build
-      - run: pnpm test
+      - run: pnpm release:check

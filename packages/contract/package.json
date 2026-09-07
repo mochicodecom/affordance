@@ -1,17 +1,51 @@
 {
   "name": "@affordance/contract",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "author": "Mochicode LLC (https://mochicode.com)",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "node ../../scripts/build-package.mjs",
+    "prepack": "pnpm run build"
   },
   "devDependencies": {
     "typescript": "^5.7.2"
+  },
+  "description": "Dependency-free wire types and constants for the Affordance HTTP contract.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mochicodecom/affordance.git",
+    "directory": "packages/contract"
+  },
+  "homepage": "https://github.com/mochicodecom/affordance#readme",
+  "bugs": {
+    "url": "https://github.com/mochicodecom/affordance/issues"
+  },
+  "keywords": [
+    "affordance",
+    "case-management",
+    "typescript",
+    "postgres"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

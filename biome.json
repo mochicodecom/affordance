@@ -41,13 +41,5 @@
         "organizeImports": "on"
       }
     }
-  },
-  "overrides": [
-    {
-      "includes": ["docs/tutorial/**"],
-      "linter": {
-        "enabled": false
-      }
-    }
-  ]
+  }
 }

@@ -1,0 +1,53 @@
+name: Publish npm packages
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: affordance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d affordance"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      # npm (not pnpm) performs the upload using GitHub's OIDC identity.
+      - run: npm install --global npm@11
+      - run: pnpm install --frozen-lockfile
+      - name: Check release version
+        run: >-
+          node --input-type=module -e
+          "import { validatePackages } from './scripts/release/artifacts.mjs';
+          if (process.env.GITHUB_REF !== 'refs/tags/v' + validatePackages())
+          throw new Error('Tag does not match package versions')"
+      - run: pnpm release:check
+      - run: pnpm release:publish

@@ -1,72 +1,137 @@
-# A group house purchase — the reference app
+# Reference app: a group house purchase
 
-The anchor use case, built for real. Not a demo of the framework's features:
-several people pooling money to buy a house together, with the parts that
-actually make case management hard — money that does not match and a
-verification hit that ages.
+Updated: 2026-09-06
 
+Several buyers pool money for one purchase while verification, signatures,
+escrow, and funding progress independently. This app shows how guarded steps
+handle that work and its exceptions. Providers and money movements are mocked;
+the engine, Postgres persistence, guards, and HTTP contract are real.
+
+Read the [introduction](../../docs/tutorial/README.md) first for a smaller case.
+
+## Run it
+
+From the repository root, with Node 22.12+, pnpm, and Docker:
+
+```bash
+pnpm install
+pnpm db:up
+pnpm --filter @affordance/reference-app ui:build
+pnpm --filter @affordance/reference-app serve
 ```
-pnpm db:up                                  # Postgres
-pnpm --filter @affordance/reference-app ui:build  # build the demo console (once, and after ui/ changes)
-pnpm --filter @affordance/reference-app serve     # serve the app, console at /
-pnpm test                                   # the acceptance tests
+
+Open `http://localhost:8787/`. The server seeds no cases. Create a purchase in
+the console, then use the actor lanes to take steps as the organizer, individual
+buyers, and escrow officer. Each lane asks about the same state as a different
+actor; one fixed observer persona supplies the main read.
+
+Provider requests appear in the console's external-world panel. Deliver their
+events to bring results into case state. Delivery is manual in the served demo;
+the engine does not run steps when their guards become true.
+
+`PORT` and `DATABASE_URL` override the server's defaults. The API is mounted at
+`/api`; `/dev` provides the console's inspection and provider controls.
+
+For UI development, keep the app server running and use:
+
+```bash
+pnpm --filter @affordance/reference-app ui:dev
 ```
 
-The server seeds nothing — a case exists only when someone creates one
-through the API. The acceptance tests stage their own.
+Vite serves port 5173 and proxies `/api` and `/dev` to port 8787. `ui/` is a
+standalone React + Mantine project. Rebuild it with `ui:build` after changes when
+using the app server's static console; `serve` requires an existing `ui/dist`.
 
-The demo console served at `GET /` is a React + Mantine app living in
-`ui/` — a standalone Vite project, deliberately not a workspace package. It
-reads wire payloads against `@affordance/contract` (a `file:` link — types
-only, no engine).
-`serve` never builds it for you: run `ui:build` first (the server refuses
-to start without `ui/dist`). For iterating on the console itself,
-`pnpm --filter @affordance/reference-app ui:dev` runs Vite's dev server on
-:5173, proxying `/api` and `/dev` to the app on :8787.
+## What to observe
 
-## What is here
+These are state dependencies, not a graph configured in the engine:
 
-| File | What it holds |
+```mermaid
+flowchart TB
+  Setup["Accepted offer + inspection"] --> Escrow["Escrow account opens"]
+  Buyer["Buyer commits"] --> Verify["Verification clears"]
+  Verify --> Sign["Agreement signed"]
+  Escrow --> Call["Funding call"]
+  Buyer --> Call
+  Call --> Wire["Wires arrive and are classified"]
+  Sign --> Close["Purchase can close"]
+  Wire --> Close
+  Close --> Deed["Deed can be recorded"]
+```
+
+The organizer closes when the funding call exists, committed buyers have
+signed, wires are settled, and funding is sufficient or a short wire has been
+accepted. Closing writes `purchase.closedAt` and marks the case dormant.
+`record-deed` remains available afterward: dormancy does not freeze the case.
+
+### Wire exceptions
+
+`record-wire` classifies an incoming wire in the same execution that records it.
+It compares the source account and amount with the buyer's expected details:
+
+| Outcome | Available resolution | Actor |
+| --- | --- | --- |
+| `matched` | Already settled | — |
+| `short` | `accept-short-wire` | Organizer |
+| `over` | `refund-over-wire` | Escrow officer |
+| `wrong-account` | `return-wire` | Escrow officer |
+
+Each resolution is scoped to one wire. These handlers record the mock decision;
+they do not initiate real transfers. There is no separate automatic
+`reconcile-wire` step.
+
+### Verification review
+
+A provider result can set a buyer's verification status to `review` and record
+`flaggedAt`. That makes `escalate-verification` available to the escrow officer
+for that buyer. It is a judgment call, with no seven-day timer or `after`
+condition. After escalation, `clear-enhanced-review` records either `clear` or
+`rejected` from the officer's input.
+
+## Providers and the journal
+
+Mock providers return their own IDs and queue later events. The initiating
+handler registers each ID with `ctx.correlate`, so a provider result can find the
+case and scope without carrying a case ID.
+
+Each queued event is delivered three times by default. Successful redeliveries
+return `duplicate`; transient dead letters can reopen as described in the
+[HTTP contract](../../docs/affordance-contract.md#events-and-dead-letters).
+Tests use `app.settle()` to flush due events. A custom driver can use
+`services.start(engine)` to deliver on a timer; the served demo leaves delivery
+to the console.
+
+The journal lets you inspect the step, actor, scope, claim-time conditions, and
+committed delta for each execution. Compare the buyer and organizer lanes with
+the recorded actor when following the commitment and closing steps.
+
+## Read the code
+
+| File | Responsibility |
 | --- | --- |
-| `src/state.ts` | the Case State schema — no status field, no stage, no pointer |
-| `src/steps.ts` | every step, as a flat list of guards. No ordering declared anywhere |
-| `src/purchase.ts` | the house-purchase definition set |
-| `src/services.ts` | mock verification, e-sign and escrow banking: they answer late, and they retry |
-| `src/app.ts` | the wiring — engine, providers, HTTP adapter |
-| `src/serve.ts` | the server entry — boots the app and serves, seeding nothing |
-| `ui/` | the demo console: React + Mantine, served at `/` from `ui/dist` |
+| [state.ts](src/state.ts) | State schema, independent domain statuses, and actor shapes. |
+| [steps.ts](src/steps.ts) | Guarded steps, provider calls, and scoped exception handling. |
+| [purchase.ts](src/purchase.ts) | Case type and initial state. |
+| [services.ts](src/services.ts) | Mock providers and queued event delivery. |
+| [app.ts](src/app.ts) | Engine, actor mapping, HTTP adapter, and development routes. |
+| [serve.ts](src/serve.ts) | Server startup and static UI requirement. |
+| [ui/](ui/src) | Actor lanes, schema-driven input forms, and inspection panels. |
 
-## The two exceptions
+The demo reads `x-actor-id` and `x-actor-roles` directly for impersonation.
+Its `/dev` routes expose state and operator controls. These are development
+conveniences; a deployed application needs authenticated actors and its own
+access policy for those surfaces. The host restricts HTTP case creation to the
+organizer role, separately from step guards.
 
-**Wire reconciliation.** `reconcile-wire` is auto-executing and scoped over
-unreconciled wires. Its outcomes — `matched`, `short`, `over`,
-`wrong-account` — are *state*, and each has its own resolution step guarded on
-it. Nobody drew a branch; a short wire simply makes `accept-short-wire`
-available for that wire and nothing else.
+Run repository checks from the root:
 
-**Verification escalation.** A provider hit puts a buyer in `review` and
-writes `flaggedAt`. `escalate-verification` declares
-`after(days(7), b => b.verification.flaggedAt)` over the *buyer*, so the
-scheduler knows the exact instant per buyer, and a case with three flagged
-buyers has three independent clocks. Escalation is the escrow officer's step,
-not the organizer's — which is a `permits` condition, not a workflow role.
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+```
 
-## How the providers misbehave
-
-Real integrations answer out of band, more than once, and about identifiers
-that mean nothing to your database. So:
-
-- `flush()` is when the webhooks arrive — until then a case sits waiting,
-  exactly as it would in production;
-- every webhook is delivered `attempts` times (default 3), so ingestion's
-  dedup earns its keep on every single one;
-- a webhook quotes an envelope or an account, never a case, so it routes only
-  because the handler that started the interaction registered the correlation
-  in the same commit.
-
-## Driving it
-
-Everything in `test/` goes through the HTTP adapter and follows links out of
-affordance payloads — no test builds a URL or knows an order. If the happy
-path is reachable that way, the HATEOAS claim holds for this case type; if it
-were not, no amount of green unit tests would matter.
+[Happy-path](test/happy-path.pg.test.ts) and
+[exception](test/exceptions.pg.test.ts) tests execute steps through links from
+HTTP affordance payloads. Other tests cover development routes and shared
+console metadata. The full suite requires Postgres.
