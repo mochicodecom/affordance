@@ -21,7 +21,8 @@ pnpm --filter @affordance/reference-app serve
 ```
 
 Open `http://localhost:8787/`. The server seeds no cases. Create a purchase in
-the console, then use the actor lanes to take steps as the organizer, individual
+the console using the prefilled house purchase (edit its address and target if
+desired), then use the actor lanes to take steps as the organizer, individual
 buyers, and escrow officer. Each lane asks about the same state as a different
 actor; one fixed observer persona supplies the main read.
 

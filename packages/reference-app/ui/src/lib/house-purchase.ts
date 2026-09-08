@@ -10,6 +10,7 @@
  *
  * Leak #1: actor hints, done-detection, and the buyer-roster extractor.
  * Leak #2: the newcomer intro page's content (in the tables module).
+ * Leak #3: an editable starting purchase (in the tables module).
  */
 
 import type { Persona } from '@/lib/api'

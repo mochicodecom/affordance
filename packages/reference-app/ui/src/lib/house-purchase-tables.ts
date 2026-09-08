@@ -13,9 +13,16 @@
  * - which unmet conditions mean "already happened" (`DONE_WHEN_UNMET`) —
  *   once-only is this app's semantics, not a framework concept;
  * - editorial content (`INTRO`, `WORLD_LABELS`).
+ * - a valid, editable starting purchase (`NEW_PURCHASE`).
  * Step labels are NOT here: the wire carries each entry's `title`, so live
  * surfaces read the payload and only this static content spells out labels.
  */
+
+/** Demo input, exercised through case creation by the console tests. */
+export const NEW_PURCHASE = {
+  caseType: 'house-purchase',
+  state: { purchase: { address: '12 Mochi Lane', target: 1_000_000 } },
+}
 
 /* Who normally takes each step. Steps absent here get no hint badge; the
  * payload itself never says who may act (permits are deliberately

@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { HOUSE_PURCHASE, newPurchase } from '../src/purchase.js'
 import { buyerActor, organizer } from '../src/state.js'
+import { NEW_PURCHASE } from '../ui/src/lib/house-purchase-tables.js'
 import { type Client, createClient, createPool } from './harness.js'
 
 const pool = createPool()
@@ -37,6 +38,23 @@ describe('the demo page', () => {
 })
 
 describe('the /dev console', () => {
+  it('creates a usable purchase from the console’s prefilled form', async () => {
+    const response = await http('/api/cases', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-actor-id': organizer.id,
+        'x-actor-roles': organizer.roles.join(','),
+      },
+      body: JSON.stringify(NEW_PURCHASE),
+    })
+    expect(response.status).toBe(201)
+    const payload = (await response.json()) as any
+    expect(payload.affordances.map((entry: any) => entry.step)).toContain(
+      'accept-offer',
+    )
+  })
+
   it('lists cases newest first, in the handle shape', async () => {
     const older = await client.create(organizer)
     const newer = await client.create(organizer)

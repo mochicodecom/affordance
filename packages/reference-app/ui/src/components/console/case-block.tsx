@@ -14,7 +14,7 @@ import { Eyebrow } from '@/components/console/eyebrow'
 import { RefusalNote } from '@/components/console/refusal-note'
 import { type CardError, CREATE_KEY } from '@/hooks/use-console'
 import type { CaseSummary } from '@/lib/api'
-import { caseLabel } from '@/lib/house-purchase'
+import { caseLabel, NEW_PURCHASE } from '@/lib/house-purchase'
 
 type Props = {
   cases: CaseSummary[]
@@ -32,7 +32,7 @@ type Props = {
  * own toggle button instead of appearing as a step row. It
  * runs as the console's observer persona (the organizer), and the server
  * enforces the role either way: 403 not-permitted for any actor without
- * it. The form starts empty — the caller authors every value.
+ * it. The form starts with a valid demo purchase; every value is editable.
  */
 /* The shared dev database holds every case the tests ever left behind, so
  * the dropdown shows only the newest few — the staged demo cases are
@@ -144,12 +144,19 @@ export function CaseBlock({
           >
             <form onSubmit={submit}>
               <Stack gap="xs">
-                <TextInput label="caseType *" type="text" name="caseType" />
+                <TextInput
+                  label="caseType *"
+                  type="text"
+                  name="caseType"
+                  defaultValue={NEW_PURCHASE.caseType}
+                  required
+                />
                 <Textarea
                   label="state (JSON) *"
-                  rows={5}
+                  rows={7}
                   name="state"
-                  defaultValue="{}"
+                  defaultValue={JSON.stringify(NEW_PURCHASE.state, null, 2)}
+                  required
                   styles={{
                     input: {
                       fontFamily: 'var(--mantine-font-family-monospace)',
