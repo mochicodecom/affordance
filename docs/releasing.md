@@ -3,7 +3,7 @@
 Updated: 2026-09-06
 
 Publish `@affordance/core` and `@affordance/pg` together
-at the same version, starting with `0.1.0`. The root, reference app, UI, and
+at the same version. The root, reference app, UI, and
 testkit remain private. Packages contain compiled ESM, TypeScript declarations,
 source maps with embedded source, a README, and the MIT license.
 
@@ -90,10 +90,10 @@ trusted publishing. See [npm's trusted publishing documentation](https://docs.np
 3. Tag that commit with its version and push the tag, for example:
 
    ```bash
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag v0.2.0
+   git push origin v0.2.0
    ```
 
-The release workflow checks that the tag matches all two versions, repeats
+The release workflow checks that the tag matches both package versions, repeats
 the release checks, and uploads the tested tarballs. A normal branch push runs
 the same checks without publishing. Never reuse a version for changed contents.
