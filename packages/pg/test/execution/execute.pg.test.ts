@@ -1,25 +1,22 @@
 import { TEST_DATABASE_URL, testPool } from '@affordance/testkit'
 import pg from 'pg'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { createEngine } from '../../src/engine/index.js'
+import { createEngine } from '../../../core/src/engine/index.js'
 import {
   CaseBusyError,
   ClaimLostError,
   foldExecutions,
   StepExecutionError,
   StepNotAvailableError,
-} from '../../src/execution/index.js'
+} from '../../../core/src/execution/index.js'
 import {
   ScopeKeyError,
   StepInputValidationError,
   UnknownStepError,
-} from '../../src/model/index.js'
-import {
-  CaseStateValidationError,
-  FRAMEWORK_SCHEMA,
-  insertCase,
-  selectCase,
-} from '../../src/store/index.js'
+} from '../../../core/src/model/index.js'
+import { CaseStateValidationError } from '../../../core/src/store/index.js'
+import { createPgStorage, FRAMEWORK_SCHEMA } from '../../src/index.js'
+import { insertCase, selectCase } from '../../src/store.js'
 import {
   APP_TABLE,
   amendmentState,
@@ -37,7 +34,7 @@ import {
 
 const pool = testPool()
 const engine = createEngine({
-  db: { pool },
+  storage: createPgStorage({ db: { pool } }),
   caseTypes: [purchaseExecution],
   // Short lease + fast heartbeat so the expiry tests are seconds, not minutes.
   claimTtlMs: 2_000,
@@ -186,7 +183,7 @@ describe('the transaction seam', () => {
     await client.connect()
     try {
       const clientEngine = createEngine({
-        db: { client },
+        storage: createPgStorage({ db: { client } }),
         caseTypes: [purchaseExecution],
       })
       const result = await clientEngine.execute(created.id, 'confirm-split', {

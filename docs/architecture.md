@@ -32,8 +32,10 @@ is `(step, scopeKey)`.
 
 ## Application and library boundaries
 
-Affordance is embedded in the app process. Postgres is required; the app owns
-the database connection, identity, access control, read models, and providers.
+Affordance is embedded in the app process. The app supplies a storage adapter
+and owns identity, access control, application read models, and providers.
+`@affordance/pg` supplies the Postgres implementation. Core has no database
+driver dependency and exposes validated case reads and paginated listings.
 
 ```mermaid
 flowchart LR
@@ -44,7 +46,10 @@ flowchart LR
     App --> Engine
     Engine --> Handler["App step handlers"]
   end
-  Engine --> DB[("Postgres")]
+  Engine --> Storage["Storage interfaces"]
+  Storage --> PG["@affordance/pg"]
+  PG --> DB[("Postgres")]
+  Storage --> Custom["Custom repository adapter"]
   Handler --> Provider["External provider"]
   Provider -->|"event"| App
 ```
@@ -55,12 +60,16 @@ flowchart LR
 | `guards/` | Evaluate named conditions without I/O and retain each result. |
 | `engine/` | Bind the registry and store to the public API; compute affordances and explanations. |
 | `execution/` | Claim, retries, commit, journal, and guard comparison against past evidence. |
-| `store/` | Postgres schema, case rows, and state validation. |
+| Core `store/` / `storage.ts` | Case records, validation, and public storage interfaces. |
+| `@affordance/pg` | SQL, schema, connection management, and atomic persistence. |
 | `ingestion/` / `migration/` | Turn external events or state transforms into executions. |
 | HTTP adapter / contract | Translate core records into wire types and apply visibility filtering. |
 
-The execution lifecycle has an internal storage interface so unit tests can
-simulate failures without Postgres. It is not a public storage adapter API.
+The execution lifecycle uses the public `LifecyclePort` from
+`@affordance/core/storage`. Adapters serialize each case operation and atomically
+commit or roll back its changes. Core owns guard evaluation, schema validation,
+retry decisions, and the handler lifecycle. Shared contract tests exercise both
+memory and Postgres implementations. See [storage adapters](storage.md).
 See the [codebase map](tutorial/reference/codebase-map.md) for source links.
 
 ## Guards describe availability; claims enforce it
@@ -90,7 +99,8 @@ another live execution produces `case-busy`.
 ## Execution spans two short transactions
 
 The execution is a “pseudo-transaction”: one recorded unit of work containing
-an async handler, with database transactions at its boundaries.
+an async handler, with atomic claim and commit operations. The Postgres adapter
+implements these as two short database transactions:
 
 ```mermaid
 sequenceDiagram
@@ -115,8 +125,9 @@ executions from changing the document while the handler runs, without holding
 a row lock or transaction across the handler's external calls. Separate cases
 can execute independently.
 
-`ctx.onCommit` registers app database writes on the same transaction as the
-state update and completed journal entry. `ctx.correlate` registers an external
+`ctx.onCommit` registers writes through the adapter-defined commit context.
+The adapter commits these with the state update and completed journal entry.
+For Postgres the context is a transaction handle or repositories bound to it. `ctx.correlate` registers an external
 identifier through that same mechanism. A failed commit rolls these writes
 back together; it cannot roll back an external service call.
 

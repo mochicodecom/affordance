@@ -1,3 +1,4 @@
+import { selectCaseForUpdate, selectCaseUntyped } from '../../src/store.js'
 /**
  * Case resolution: the one place a case row becomes a Case Type definition
  * plus a Case State that can be trusted.
@@ -13,18 +14,17 @@ import { randomUUID } from 'node:crypto'
 import { testPool } from '@affordance/testkit'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { UnknownCaseTypeError } from '../../src/engine/index.js'
-import { withTransaction } from '../../src/execution/index.js'
-import { caseType, step } from '../../src/model/index.js'
+import { UnknownCaseTypeError } from '../../../core/src/engine/index.js'
+import { caseType, step } from '../../../core/src/model/index.js'
 import {
   CaseNotFoundError,
   CaseStateValidationError,
-  insertCase,
   resolveCase,
-  resolveCaseForUpdate,
   resolveStoredState,
   validateCaseState,
-} from '../../src/store/index.js'
+} from '../../../core/src/store/index.js'
+import { withTransaction } from '../../src/index.js'
+import { insertCase } from '../../src/store.js'
 
 const pool = testPool({ max: 5 })
 
@@ -62,7 +62,7 @@ const createCase = async (
 describe('resolveCase', () => {
   it('returns the definition, the row and the validated state together', async () => {
     const caseId = await createCase()
-    const resolved = await resolveCase(pool, registry(), caseId)
+    const resolved = await readResolved(caseId, registry())
 
     expect(resolved.definition.name).toBe(purchase.name)
     expect(resolved.handle.id).toBe(caseId)
@@ -72,7 +72,7 @@ describe('resolveCase', () => {
   })
 
   it('throws CaseNotFoundError for a case id that does not exist', async () => {
-    await expect(resolveCase(pool, registry(), randomUUID())).rejects.toThrow(
+    await expect(readResolved(randomUUID(), registry())).rejects.toThrow(
       CaseNotFoundError,
     )
   })
@@ -82,7 +82,7 @@ describe('resolveCase', () => {
     const empty = (name: string): never => {
       throw new UnknownCaseTypeError(name, [])
     }
-    await expect(resolveCase(pool, empty, caseId)).rejects.toThrow(
+    await expect(readResolved(caseId, empty)).rejects.toThrow(
       UnknownCaseTypeError,
     )
   })
@@ -93,7 +93,7 @@ describe('resolveCase', () => {
       `update affordance.cases set state = $2::jsonb where id = $1`,
       [caseId, JSON.stringify({ address: 42 })],
     )
-    await expect(resolveCase(pool, registry(), caseId)).rejects.toThrow(
+    await expect(readResolved(caseId, registry())).rejects.toThrow(
       CaseStateValidationError,
     )
   })
@@ -102,8 +102,8 @@ describe('resolveCase', () => {
 describe('resolveCaseForUpdate', () => {
   it('resolves the same way, inside a transaction holding the case row', async () => {
     const caseId = await createCase({ address: 'Held' })
-    const resolved = await withTransaction({ pool }, (tx) =>
-      resolveCaseForUpdate(tx, registry(), caseId),
+    const resolved = await withTransaction({ pool }, async (tx) =>
+      resolveCase(await selectCaseForUpdate(tx, caseId), registry()),
     )
     expect(resolved.state).toEqual({ address: 'Held', closed: false })
   })
@@ -145,3 +145,8 @@ describe('validateCaseState', () => {
     )
   })
 })
+
+const readResolved = async (
+  id: string,
+  lookup: typeof registry extends () => infer R ? R : never,
+) => resolveCase(await selectCaseUntyped(pool, id), lookup)

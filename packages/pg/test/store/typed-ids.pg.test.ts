@@ -1,3 +1,4 @@
+import { createPgStorage } from '../../src/index.js'
 /**
  * Every framework-minted id is typed: `kind:uuid`. Self-describing in a log
  * line, a journal row, or a correlation — you never wonder what a bare uuid
@@ -7,8 +8,8 @@
 import { testPool } from '@affordance/testkit'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { createEngine } from '../../src/engine/index.js'
-import { caseType, step } from '../../src/model/index.js'
+import { createEngine } from '../../../core/src/engine/index.js'
+import { caseType, step } from '../../../core/src/model/index.js'
 
 const ReviewState = z.object({
   flaggedAt: z.string().nullable().default(null),
@@ -34,7 +35,10 @@ const reviewCase = caseType({
 const officer = { id: 'esc-1', roles: ['escrow-officer'] }
 
 const pool = testPool({ max: 5 })
-const engine = createEngine({ db: { pool }, caseTypes: [reviewCase] })
+const engine = createEngine({
+  storage: createPgStorage({ db: { pool } }),
+  caseTypes: [reviewCase],
+})
 
 const TYPED = (kind: string) =>
   new RegExp(

@@ -6,7 +6,7 @@ Updated: 2026-09-06
 
 Start with the [public core API](../../../packages/core/src/index.ts) and the
 [reference app's steps](../../../packages/reference-app/src/steps.ts). The app
-supplies case definitions and a Postgres connection; the engine is an embedded
+supplies case definitions and a storage adapter; the engine is an embedded
 library. The HTTP adapter is optional.
 
 | To understand… | Read… |
@@ -19,8 +19,9 @@ library. The HTTP adapter is optional.
 | Computing available and blocked steps without I/O | [compute.ts](../../../packages/core/src/engine/compute.ts) |
 | Claim, run, commit, retries, and takeover | [execute.ts](../../../packages/core/src/execution/execute.ts) |
 | Journal records and state deltas | [journal.ts](../../../packages/core/src/execution/journal.ts), [delta.ts](../../../packages/core/src/execution/delta.ts) |
-| Database tables and case persistence | [bootstrap.ts](../../../packages/core/src/store/bootstrap.ts), [store.ts](../../../packages/core/src/store/store.ts) |
+| Postgres tables and case persistence | [bootstrap.ts](../../../packages/pg/src/bootstrap.ts), [store.ts](../../../packages/pg/src/store.ts) |
 | External event deduplication, correlation, and dead letters | [ingest.ts](../../../packages/core/src/ingestion/ingest.ts) |
+| Public storage interfaces and adapter composition | [storage.ts](../../../packages/core/src/storage.ts), [Postgres adapter](../../../packages/pg/src/storage.ts) |
 | Journaled state migrations | [migrate.ts](../../../packages/core/src/migration/migrate.ts) |
 | HTTP routes, serialization, and visibility | [api.ts](../../../packages/http/src/api.ts), [contract.ts](../../../packages/http/src/contract.ts), [audience.ts](../../../packages/http/src/audience.ts) |
 | Wire-format types for clients | [contract package](../../../packages/contract/src/index.ts) |

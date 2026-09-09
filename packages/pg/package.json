@@ -1,0 +1,62 @@
+{
+  "name": "@affordance/pg",
+  "version": "0.1.0",
+  "author": "Mochicode LLC (https://mochicode.com)",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node ../../scripts/build-package.mjs",
+    "prepack": "pnpm run build"
+  },
+  "dependencies": {
+    "@affordance/core": "workspace:*",
+    "@standard-schema/spec": "^1.1.0",
+    "@types/pg": "^8.11.10"
+  },
+  "devDependencies": {
+    "@affordance/testkit": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.0",
+    "pg": "^8.13.1",
+    "zod": "^4.4.3"
+  },
+  "description": "Postgres storage and transactional execution for Affordance.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mochicodecom/affordance.git",
+    "directory": "packages/pg"
+  },
+  "homepage": "https://github.com/mochicodecom/affordance#readme",
+  "bugs": {
+    "url": "https://github.com/mochicodecom/affordance/issues"
+  },
+  "keywords": [
+    "affordance",
+    "case-management",
+    "typescript",
+    "postgres"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}

@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod'
-import { caseType, step } from '../../src/model/index.js'
+import { caseType, step } from '../../../core/src/model/index.js'
 
 export const SigningState = z.object({
   purchase: z.object({

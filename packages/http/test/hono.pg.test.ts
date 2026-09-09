@@ -1,3 +1,4 @@
+import { createPgStorage } from '@affordance/pg'
 /**
  * The hono binding, exercised over real HTTP semantics (hono's `app.request`
  * runs the whole pipeline — URL parsing, JSON bodies, status codes).
@@ -19,7 +20,10 @@ import { buyerA, organizer, purchase, twoBuyers } from './fixture.js'
 
 const pool = testPool()
 
-const engine = createEngine({ db: { pool }, caseTypes: [purchase] })
+const engine = createEngine({
+  storage: createPgStorage({ db: { pool } }),
+  caseTypes: [purchase],
+})
 const api = createAffordanceApi({ engine })
 
 /**

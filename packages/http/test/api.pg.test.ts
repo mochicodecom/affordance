@@ -1,3 +1,4 @@
+import { createPgStorage } from '@affordance/pg'
 /**
  * The adapter and the contract, against a real engine.
  *
@@ -22,7 +23,10 @@ import { buyerA, buyerB, organizer, purchase, twoBuyers } from './fixture.js'
 
 const pool = testPool()
 
-const engine = createEngine({ db: { pool }, caseTypes: [purchase] })
+const engine = createEngine({
+  storage: createPgStorage({ db: { pool } }),
+  caseTypes: [purchase],
+})
 const api = createAffordanceApi({
   engine,
   basePath: '/api',

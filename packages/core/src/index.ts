@@ -109,6 +109,8 @@ export type {
   BoundStep,
   CaseTypeDefinition,
   CaseTypeOptions,
+  CommitContextMarker,
+  CommitEffect,
   CommitWrite,
   CorrelationRequest,
   HandlerContext,
@@ -130,6 +132,7 @@ export type {
 export {
   actor,
   caseType,
+  commitContext,
   DEFAULT_RETRY,
   SCOPE_FAILURE_CONDITION,
   ScopeKeyError,
@@ -137,20 +140,6 @@ export {
   stepsOf,
   UnknownStepError,
 } from './model/index.js'
-export type {
-  CaseHandle,
-  DatabaseAccess,
-  Dormancy,
-  PoolLike,
-  Queryable,
-  Transaction,
-} from './store/index.js'
-// ── Persistence: what an app touches directly ──────────────────────────────
-export {
-  bootstrap,
-  CASE_TABLES,
-  CaseNotFoundError,
-  CaseStateValidationError,
-  FRAMEWORK_SCHEMA,
-  queryableOf,
-} from './store/index.js'
+export type { CaseListOptions, CasePage, EngineStorage } from './storage.js'
+export type { CaseHandle, Dormancy } from './store/index.js'
+export { CaseNotFoundError, CaseStateValidationError } from './store/index.js'

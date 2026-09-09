@@ -37,16 +37,8 @@ import type { ExecutionEnvironment, StateDelta } from '../execution/index.js'
 import { diffState, runAsSystem } from '../execution/index.js'
 import type { AnyCaseType, StepDefinition } from '../model/index.js'
 import { step } from '../model/index.js'
-import type { Queryable } from '../store/index.js'
-import {
-  FRAMEWORK_SCHEMA,
-  queryableOf,
-  resolveStoredState,
-  sqlWhere,
-} from '../store/index.js'
-
-const CASES = `${FRAMEWORK_SCHEMA}.cases`
-const JOURNAL = `${FRAMEWORK_SCHEMA}.journal`
+import type { EngineStorage } from '../storage.js'
+import { resolveStoredState } from '../store/index.js'
 
 /** The synthetic step name a migration executes under — its journal marker. */
 export const migrationStepName = (name: string): string => `migrate:${name}`
@@ -128,10 +120,10 @@ export interface MigrationReport {
  * would only ever be in its way. `maxAttempts: 1` because a transform that
  * throws is a defect in the transform, and retrying it just throws again.
  */
-const migrationStep = (
+const migrationStep = <TCommit>(
   name: string,
   transform: MigrationTransform,
-): StepDefinition<unknown, unknown> =>
+): StepDefinition<unknown, unknown, TCommit> =>
   step({
     name: migrationStepName(name),
     retry: { maxAttempts: 1 },
@@ -144,52 +136,15 @@ const migrationStep = (
  * untouched: the migration step exists for the duration of the run and is
  * never part of anything a client could see as an affordance.
  */
-const withMigrationStep = (
-  definition: AnyCaseType,
-  migration: StepDefinition<unknown, unknown>,
-): AnyCaseType => ({
+const withMigrationStep = <TCommit>(
+  definition: AnyCaseType<TCommit>,
+  migration: StepDefinition<unknown, unknown, TCommit>,
+): AnyCaseType<TCommit> => ({
   ...definition,
   steps: [...definition.steps, migration],
   getStep: (stepName: string) =>
     stepName === migration.name ? migration : definition.getStep(stepName),
 })
-
-/** Case ids of this type that do not yet carry the migration's marker, oldest first. */
-const findCandidates = async (
-  db: Queryable,
-  caseTypeName: string,
-  marker: string,
-  options: MigrationOptions,
-  afterId: string | null,
-  batchSize: number,
-): Promise<readonly { id: string; state: unknown }[]> => {
-  const { conditions, values, bind, where } = sqlWhere(
-    [
-      `c.case_type = $1`,
-      // The marker: a completed Execution of this migration on this case. The
-      // journal is the record of what has happened, so it is also the record of
-      // what has already been migrated — no bookkeeping table, no state flag.
-      `not exists (
-       select 1 from ${JOURNAL} j
-       where j.case_id = c.id and j.step = $2 and j.entry = 'completed'
-     )`,
-    ],
-    [caseTypeName, marker],
-  )
-  if (options.includeEnded !== true) conditions.push(`c.ended_at is null`)
-  if (options.caseIds !== undefined)
-    conditions.push(`c.id = any(${bind(options.caseIds)}::text[])`)
-  if (afterId !== null) conditions.push(`c.id > ${bind(afterId)}`)
-
-  const { rows } = await db.query<{ id: string; state: unknown }>(
-    `select c.id, c.state from ${CASES} c
-     where ${where()}
-     order by c.id asc
-     limit ${bind(batchSize)}`,
-    values,
-  )
-  return rows
-}
 
 /**
  * Run a state restructure over every case of a case type, as journaled
@@ -202,12 +157,11 @@ const findCandidates = async (
  * state schema) is reported and the run moves on, and the next run will pick
  * it up because it never got its marker.
  *
- * The cursor walks case ids ascending, and the "already migrated" filter is
- * applied by the database on every batch — so a case migrated by a
- * concurrently-running instance of the same migration simply is not returned.
+ * Storage owns candidate order and continuation. It excludes completed
+ * migration markers on every page; the core passes its cursor back unchanged.
  */
-export const migrate = async (
-  env: ExecutionEnvironment,
+export const migrate = async <TCommit>(
+  env: ExecutionEnvironment<TCommit>,
   caseTypeName: string,
   name: string,
   transform: MigrationTransform,
@@ -226,7 +180,7 @@ export const migrate = async (
 
   const definition = env.caseTypeFor(caseTypeName)
   const marker = migrationStepName(name)
-  const migration = migrationStep(name, transform)
+  const migration = migrationStep<TCommit>(name, transform)
   const augmented = withMigrationStep(definition, migration)
   const actor: unknown = options.actor ?? { kind: 'migration', migration: name }
   const batchSize = Math.max(1, options.batchSize ?? 100)
@@ -283,18 +237,16 @@ export const migrate = async (
     const remaining =
       options.limit === undefined ? batchSize : options.limit - scanned
     if (remaining <= 0) break
-    const candidates = await findCandidates(
-      queryableOf(env.db),
+    const page = await env.storage.migrations.candidates(
       caseTypeName,
       marker,
       options,
       cursor,
       Math.min(batchSize, remaining),
     )
-    if (candidates.length === 0) break
+    if (page.cases.length === 0) break
 
-    for (const candidate of candidates) {
-      cursor = candidate.id
+    for (const candidate of page.cases) {
       scanned += 1
       const { outcome, delta, error } = await runOne(candidate)
       if (error !== null) failed.push({ caseId: candidate.id, error })
@@ -309,21 +261,17 @@ export const migrate = async (
         processed: scanned,
       })
     }
+    cursor = page.nextCursor
+    if (cursor === null) break
   }
 
   return { name, caseTypeName, dryRun, scanned, migrated, unchanged, failed }
 }
 
-/** Whether one case already carries a migration's marker. */
-export const hasMigrated = async (
-  db: Queryable,
+/** Whether one case carries a completed migration marker. */
+export const hasMigrated = (
+  storage: Pick<EngineStorage, 'migrations'>,
   caseId: string,
   name: string,
-): Promise<boolean> => {
-  const { rows } = await db.query<{ one: number }>(
-    `select 1 as one from ${JOURNAL}
-     where case_id = $1 and step = $2 and entry = 'completed' limit 1`,
-    [caseId, migrationStepName(name)],
-  )
-  return rows.length > 0
-}
+): Promise<boolean> =>
+  storage.migrations.hasCompleted(caseId, migrationStepName(name))

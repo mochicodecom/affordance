@@ -1,3 +1,5 @@
+import { actor, commitContext, stepsOf } from '../../../core/src/model/index.js'
+import type { Transaction } from '../../src/index.js'
 /**
  * House-purchase-shaped fixture for the execution lifecycle: unlike the engine
  * fixture, every handler here really runs and really mutates Case State.
@@ -9,8 +11,8 @@
  */
 
 import { z } from 'zod'
-import type { ConditionContext } from '../../src/guards/index.js'
-import { caseType, step } from '../../src/model/index.js'
+import type { ConditionContext } from '../../../core/src/guards/index.js'
+import { caseType, step } from '../../../core/src/model/index.js'
 
 /** App-owned table the shared-transaction step writes to. */
 export const APP_TABLE = 'case_test_wires'
@@ -216,7 +218,11 @@ export const WireInput = z.object({
 })
 
 /** Writes to an app-owned table inside the framework's commit transaction. */
-export const recordWire = step({
+export const recordWire = stepsOf(
+  PurchaseState,
+  actor<PurchaseActor>(),
+  commitContext<Transaction>(),
+)({
   name: 'record-wire',
   permits: { isOrganizer },
   input: WireInput,

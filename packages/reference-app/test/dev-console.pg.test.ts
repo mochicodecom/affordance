@@ -7,7 +7,7 @@
  * that seam: the console works, and the contract routes are untouched by it.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { HOUSE_PURCHASE, newPurchase } from '../src/purchase.js'
 import { buyerActor, organizer } from '../src/state.js'
 import { NEW_PURCHASE } from '../ui/src/lib/house-purchase-tables.js'
@@ -38,6 +38,23 @@ describe('the demo page', () => {
 })
 
 describe('the /dev console', () => {
+  it('delegates list records and pagination to the engine', async () => {
+    const spy = vi
+      .spyOn(client.app.engine, 'listCases')
+      .mockResolvedValue({ cases: [], nextCursor: 'next' })
+    try {
+      const response = await http('/dev/cases?cursor=current')
+      expect(await response.json()).toEqual({ cases: [], nextCursor: 'next' })
+      expect(spy).toHaveBeenCalledWith({
+        includeEnded: true,
+        limit: 100,
+        cursor: 'current',
+      })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('creates a usable purchase from the console’s prefilled form', async () => {
     const response = await http('/api/cases', {
       method: 'POST',

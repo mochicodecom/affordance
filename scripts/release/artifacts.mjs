@@ -9,7 +9,7 @@ export const root = fileURLToPath(new URL('../../', import.meta.url))
 export const output = join(root, 'dist/npm')
 export const registry = 'https://registry.npmjs.org'
 export const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'))
-export const packages = ['contract', 'core', 'http'].map((directory) => ({
+export const packages = ['contract', 'core', 'pg', 'http'].map((directory) => ({
   directory: join(root, 'packages', directory),
   ...readJson(join(root, 'packages', directory, 'package.json')),
 }))

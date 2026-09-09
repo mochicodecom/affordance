@@ -3,13 +3,11 @@ import { testPool } from '@affordance/testkit'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
-  bootstrap,
   CaseNotFoundError,
   CaseStateValidationError,
-  FRAMEWORK_SCHEMA,
-  insertCase,
-  selectCase,
-} from '../../src/store/index.js'
+} from '../../../core/src/store/index.js'
+import { bootstrap, FRAMEWORK_SCHEMA } from '../../src/index.js'
+import { insertCase, selectCase } from '../../src/store.js'
 
 // House-purchase-shaped Case State schema. `termsVersion` and `buyers` carry defaults,
 // so creating a case proves the schema *output* is what gets materialized.

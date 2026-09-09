@@ -12,8 +12,7 @@
  *
  * The bootstrap itself is *passed in* by each package's one-line
  * `test/global-setup.ts` shim rather than imported here, so this package
- * depends on nothing but pg — core's own shim hands it core's bootstrap
- * straight from `src/`.
+ * depends on nothing but pg — each suite supplies @affordance/pg's bootstrap.
  */
 
 import pg from 'pg'

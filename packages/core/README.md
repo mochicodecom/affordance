@@ -4,15 +4,16 @@ Compute what a case can do now, for a particular actor. A case is a persisted
 object with state and independently guarded steps. Steps become available
 through state changes, without a predefined ordering.
 
-Requires Node 22.12+ and Postgres. ESM JavaScript and TypeScript declarations
+Requires Node 22.12+ and a storage adapter. The example uses Postgres through `@affordance/pg`. ESM JavaScript and TypeScript declarations
 are included. Zod is one option for the Standard Schema validation interface.
 
 ```bash
-npm install @affordance/core pg zod
+npm install @affordance/core @affordance/pg pg zod
 ```
 
 ```ts
-import { actor, bootstrap, caseType, createEngine, stepsOf } from '@affordance/core'
+import { actor, caseType, createEngine, stepsOf } from '@affordance/core'
+import { bootstrap, createPgStorage } from '@affordance/pg'
 import { Pool } from 'pg'
 import { z } from 'zod'
 
@@ -32,7 +33,7 @@ const approval = caseType({
 const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 try {
   await bootstrap(pool)
-  const engine = createEngine({ db: { pool }, caseTypes: [approval] })
+  const engine = createEngine({ storage: createPgStorage({ db: { pool } }), caseTypes: [approval] })
   const current = await engine.createCase('approval', { ownerId: 'alice', approved: false })
   console.log(await engine.affordances(current.id, { id: 'alice' }))
   await engine.execute(current.id, 'approve', { actor: { id: 'alice' } })
@@ -50,3 +51,13 @@ Read the [introduction](https://github.com/mochicodecom/affordance/blob/main/doc
 and [architecture](https://github.com/mochicodecom/affordance/blob/main/docs/architecture.md).
 The optional [HTTP adapter](https://github.com/mochicodecom/affordance/tree/main/packages/http)
 exposes available steps as links. Licensed under [MIT](./LICENSE).
+
+`engine.listCases({ caseTypeName, includeEnded, limit, cursor })` returns
+`{ cases, nextCursor }`. It lists registered types, validates stored state just
+like `engine.case(id)`, and excludes dormant cases by default. The default page
+size is 100 (maximum 1000); continue with the returned cursor and the same filters.
+Validation failures are reported to the caller. Listing does not apply actor
+permissions; the host controls access just as for addressed case reads.
+
+See [storage adapters](https://github.com/mochicodecom/affordance/blob/main/docs/storage.md)
+for the public interfaces, transaction guarantees, and custom commit contexts.

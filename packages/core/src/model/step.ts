@@ -23,7 +23,12 @@ import type { ScopeDeclaration, ScopedConditionMap } from './scope.js'
 import { eraseScopedConditionMap } from './scope.js'
 
 /** Options for an unscoped step. */
-export interface StepOptions<TState, TActor = unknown, TInput = undefined> {
+export interface StepOptions<
+  TState,
+  TActor = unknown,
+  TInput = undefined,
+  TCommit = unknown,
+> {
   /** The step's name — unique within its case type; half of a scoped affordance's identity. */
   readonly name: string
   /**
@@ -55,7 +60,7 @@ export interface StepOptions<TState, TActor = unknown, TInput = undefined> {
    */
   readonly retry?: RetryOptions
   /** The step's effect function — the only thing that mutates Case State. */
-  readonly handler: StepHandler<TState, TActor, TInput>
+  readonly handler: StepHandler<TState, TActor, TInput, TCommit>
 }
 
 /** Options for a scoped step: an unscoped step plus the scope declaration. */
@@ -64,6 +69,7 @@ export interface ScopedStepOptions<
   TElement,
   TActor = unknown,
   TInput = undefined,
+  TCommit = unknown,
 > {
   readonly name: string
   readonly title?: string
@@ -74,7 +80,7 @@ export interface ScopedStepOptions<
   readonly permits?: ScopedConditionMap<TState, TElement, TActor>
   readonly input?: StandardSchemaV1<unknown, TInput>
   readonly retry?: RetryOptions
-  readonly handler: ScopedStepHandler<TState, TElement, TActor, TInput>
+  readonly handler: ScopedStepHandler<TState, TElement, TActor, TInput, TCommit>
 }
 
 /**
@@ -83,7 +89,7 @@ export interface ScopedStepOptions<
  * The options types above carry the precise authoring shapes; this is the
  * machine-facing normal form.
  */
-export interface StepDefinition<TState, TActor = unknown> {
+export interface StepDefinition<TState, TActor = unknown, TCommit = unknown> {
   readonly name: string
   /** The declared human label, or `null` — clients fall back to `name`. */
   readonly title: string | null
@@ -105,7 +111,7 @@ export interface StepDefinition<TState, TActor = unknown> {
   /** The normalized retry policy the execution lifecycle applies to this step. */
   readonly retry: RetryPolicy
   /** The step's handler — invoked only by the execution lifecycle. */
-  readonly handler: ErasedStepHandler<TState, TActor>
+  readonly handler: ErasedStepHandler<TState, TActor, TCommit>
 }
 
 /**
@@ -241,25 +247,36 @@ const validateCommon = (options: {
  * (explicit type-argument lists interact badly with overloaded
  * context-sensitive options — annotate inside the options instead).
  */
-export function step<TState, TElement, TActor = unknown, TInput = undefined>(
-  options: ScopedStepOptions<TState, TElement, TActor, TInput>,
-): StepDefinition<TState, TActor>
-export function step<TState, TActor = unknown, TInput = undefined>(
-  options: StepOptions<TState, TActor, TInput>,
-): StepDefinition<TState, TActor>
-export function step<TState, TActor>(
+export function step<
+  TState,
+  TElement,
+  TActor = unknown,
+  TInput = undefined,
+  TCommit = unknown,
+>(
+  options: ScopedStepOptions<TState, TElement, TActor, TInput, TCommit>,
+): StepDefinition<TState, TActor, TCommit>
+export function step<
+  TState,
+  TActor = unknown,
+  TInput = undefined,
+  TCommit = unknown,
+>(
+  options: StepOptions<TState, TActor, TInput, TCommit>,
+): StepDefinition<TState, TActor, TCommit>
+export function step<TState, TActor, TCommit>(
   options:
-    | StepOptions<TState, TActor, unknown>
-    | ScopedStepOptions<TState, unknown, TActor, unknown>,
-): StepDefinition<TState, TActor> {
+    | StepOptions<TState, TActor, unknown, TCommit>
+    | ScopedStepOptions<TState, unknown, TActor, unknown, TCommit>,
+): StepDefinition<TState, TActor, TCommit> {
   const name = validateCommon(options)
   const scoped = 'scope' in options && options.scope !== undefined
-  let scope: StepDefinition<TState, TActor>['scope'] = null
+  let scope: StepDefinition<TState, TActor, TCommit>['scope'] = null
   let guard: Guard<TState, TActor>
 
   if (scoped) {
     const declaration = (
-      options as ScopedStepOptions<TState, unknown, TActor, unknown>
+      options as ScopedStepOptions<TState, unknown, TActor, unknown, TCommit>
     ).scope
     if (
       typeof declaration !== 'object' ||
@@ -280,7 +297,8 @@ export function step<TState, TActor>(
       TState,
       unknown,
       TActor,
-      unknown
+      unknown,
+      TCommit
     >
     guard = {
       ...(scopedOptions.requires !== undefined && {
@@ -291,7 +309,7 @@ export function step<TState, TActor>(
       }),
     }
   } else {
-    const unscoped = options as StepOptions<TState, TActor, unknown>
+    const unscoped = options as StepOptions<TState, TActor, unknown, TCommit>
     validateConditionMap(name, 'requires', unscoped.requires, true)
     validateConditionMap(name, 'permits', unscoped.permits, true)
     guard = {
@@ -311,7 +329,11 @@ export function step<TState, TActor>(
     // The one erasure cast for handlers: the authored context (typed input,
     // typed scope element) is what the execution lifecycle constructs; see
     // ErasedStepHandler.
-    handler: options.handler as unknown as ErasedStepHandler<TState, TActor>,
+    handler: options.handler as unknown as ErasedStepHandler<
+      TState,
+      TActor,
+      TCommit
+    >,
   }
 }
 
@@ -326,13 +348,13 @@ export function step<TState, TActor>(
  * contextually, and a scoped step's element type anchors on `scope.select`
  * alone (so `ctx.scope` is the element, with no `undefined` to narrow away).
  */
-export interface BoundStep<TState, TActor = unknown> {
+export interface BoundStep<TState, TActor = unknown, TCommit = unknown> {
   <TElement, TInput = undefined>(
-    options: ScopedStepOptions<TState, TElement, TActor, TInput>,
-  ): StepDefinition<TState, TActor>
+    options: ScopedStepOptions<TState, TElement, TActor, TInput, TCommit>,
+  ): StepDefinition<TState, TActor, TCommit>
   <TInput = undefined>(
-    options: StepOptions<TState, TActor, TInput>,
-  ): StepDefinition<TState, TActor>
+    options: StepOptions<TState, TActor, TInput, TCommit>,
+  ): StepDefinition<TState, TActor, TCommit>
 }
 
 /**
@@ -394,10 +416,15 @@ export const actor = <TActor>(): ActorMarker<TActor> => ACTOR_MARKER
  * Throws at definition time when `state` is not a Standard Schema, like
  * every other malformed-definition case in this module.
  */
-export const stepsOf = <S extends StandardSchemaV1, TActor = unknown>(
+export const stepsOf = <
+  S extends StandardSchemaV1,
+  TActor = unknown,
+  TCommit = unknown,
+>(
   state: S,
   _actor?: ActorMarker<TActor>,
-): BoundStep<StandardSchemaV1.InferOutput<S>, TActor> => {
+  _commit?: CommitContextMarker<TCommit>,
+): BoundStep<StandardSchemaV1.InferOutput<S>, TActor, TCommit> => {
   if (!isStandardSchema(state)) {
     throw new TypeError(
       'stepsOf: state must be a Standard Schema (e.g. a zod schema)',
@@ -429,8 +456,8 @@ export class StepInputValidationError extends AffordanceError {
  * without an input schema accepts only `undefined` and yields `undefined`;
  * anything else is a caller bug and throws.
  */
-export const validateStepInput = async <TState, TActor>(
-  definition: StepDefinition<TState, TActor>,
+export const validateStepInput = async <TState, TActor, TCommit>(
+  definition: StepDefinition<TState, TActor, TCommit>,
   input: unknown,
 ): Promise<unknown> => {
   if (definition.input === null) {
@@ -446,3 +473,9 @@ export const validateStepInput = async <TState, TActor>(
     throw new StepInputValidationError(definition.name, result.issues)
   return result.value
 }
+
+/** Name the transaction/repository context supplied to onCommit callbacks. */
+export interface CommitContextMarker<TCommit> {
+  readonly __commit?: TCommit
+}
+export const commitContext = <TCommit>(): CommitContextMarker<TCommit> => ({})

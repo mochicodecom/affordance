@@ -103,9 +103,10 @@ const harness = () => {
     state: State,
     steps: [increment, flaky, corrupt, sneaky, intruder, guarded],
   })
-  const store = memoryStore(clock.now, () => definition)
+  const store = memoryStore(clock.now)
 
   const deps: LifecycleDeps = {
+    caseTypeFor: () => definition,
     now: clock.now,
     timers: clock.timers,
     claimTtlMs: 30_000,
@@ -304,8 +305,9 @@ describe('the lease and the timers', () => {
       state: State,
       steps: [slow, backoff],
     })
-    const store = memoryStore(clock.now, () => definition)
+    const store = memoryStore(clock.now)
     const deps: LifecycleDeps = {
+      caseTypeFor: () => definition,
       now: clock.now,
       timers: clock.timers,
       ...timings,
