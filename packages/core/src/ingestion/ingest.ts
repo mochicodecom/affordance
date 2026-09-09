@@ -5,10 +5,9 @@
  * them has to be visible afterwards:
  *
  * 1. **Dedup.** Providers retry; "at least once" is the delivery guarantee
- *    every one of them offers. The gate is a unique insert into
- *    `ingested_events` — not a lookup-then-insert, which races itself — so
- *    three concurrent deliveries of one event produce exactly one Execution
- *    and two `duplicate` results.
+ *    every one of them offers. Storage atomically acquires a delivery, so
+ *    concurrent deliveries of one event produce one Execution and the
+ *    remaining callers receive `duplicate`.
  * 2. **Correlate.** The external identifier is resolved to (case, scope,
  *    step) through the registry the initiating handler wrote.
  * 3. **Execute.** Through the ordinary claim → run → commit, with the
@@ -34,17 +33,8 @@ import type {
   SystemSettled,
 } from '../execution/index.js'
 import { runAsSystem } from '../execution/index.js'
-import type { Queryable } from '../store/index.js'
-import {
-  FRAMEWORK_SCHEMA,
-  mintId,
-  queryableOf,
-  sqlWhere,
-} from '../store/index.js'
+import type { DeliveryRecord } from '../storage.js'
 import type { Correlation } from './correlation.js'
-import { lookupCorrelation } from './correlation.js'
-
-const EVENTS = `${FRAMEWORK_SCHEMA}.ingested_events`
 
 /** An event as an external system delivered it. */
 export interface ExternalEvent {
@@ -113,7 +103,7 @@ export const REOPENS_ON_REDELIVERY: Record<DeadLetterReason, boolean> = {
 
 const REOPENABLE = Object.entries(REOPENS_ON_REDELIVERY)
   .filter(([, reopens]) => reopens)
-  .map(([reason]) => reason)
+  .map(([reason]) => reason as DeadLetterReason)
 
 /** What {@link ingest} resolves to — always a record, never a throw. */
 export interface IngestionResult {
@@ -187,7 +177,8 @@ export interface IngestionSettings {
  * of them — named here so that contract is a type, not a coincidence of an
  * object literal.
  */
-export interface IngestionEnvironment extends ExecutionEnvironment {
+export interface IngestionEnvironment<TCommit = unknown>
+  extends ExecutionEnvironment<TCommit> {
   readonly ingestion: IngestionSettings
 }
 
@@ -227,124 +218,21 @@ export const idempotencyKeyFor = (event: ExternalEvent): string => {
   return `${event.system}/${event.externalId}/${event.type}/${tail}`
 }
 
-type EventRow = {
-  id: string
-  system: string
-  external_id: string
-  type: string
-  idempotency_key: string
-  case_id: string | null
-  scope_key: string | null
-  step: string | null
-  status: string
-  reason: string | null
-  detail: string | null
-  execution_id: string | null
-  event: ExternalEvent
-  received_at: Date
-}
-
-/**
- * The dedup gate. Inserts the event's row and reports whether this delivery
- * is the one that got it.
- *
- * `on conflict do nothing` is the whole mechanism: exactly one of N
- * concurrent deliveries inserts, and the losers read what the winner wrote.
- * A previous delivery that ended `dead-lettered` for a *transient* reason is
- * reopened rather than deduplicated — a provider retry after "the case was
- * busy" should get its chance, which is precisely what provider retries are
- * for.
- */
-const claimDelivery = async (
-  db: Queryable,
-  event: ExternalEvent,
-  idempotencyKey: string,
-): Promise<{ row: EventRow; fresh: boolean }> => {
-  const inserted = await db.query<EventRow>(
-    `insert into ${EVENTS} (id, system, external_id, type, idempotency_key, status, event)
-     values ($1, $2, $3, $4, $5, 'pending', $6::jsonb)
-     on conflict (idempotency_key) do nothing
-     returning *`,
-    [
-      mintId('event'),
-      event.system,
-      event.externalId,
-      event.type,
-      idempotencyKey,
-      JSON.stringify(event),
-    ],
-  )
-  const row = inserted.rows[0]
-  if (row) return { row, fresh: true }
-
-  const retried = await db.query<EventRow>(
-    `update ${EVENTS}
-     set status = 'pending', reason = null, detail = null, received_at = now(), event = $2::jsonb
-     where idempotency_key = $1 and status = 'dead-lettered' and reason = any($3)
-     returning *`,
-    [idempotencyKey, JSON.stringify(event), REOPENABLE],
-  )
-  const reopened = retried.rows[0]
-  if (reopened) return { row: reopened, fresh: true }
-
-  const existing = await db.query<EventRow>(
-    `select * from ${EVENTS} where idempotency_key = $1`,
-    [idempotencyKey],
-  )
-  const previous = existing.rows[0]
-  if (!previous)
-    throw new Error(
-      `${EVENTS}: delivery neither inserted nor found — key ${idempotencyKey}`,
-    )
-  return { row: previous, fresh: false }
-}
-
-/** Record how a delivery ended. The row is the dead-letter surface, so this is the only settle path. */
-const settle = async (
-  db: Queryable,
-  id: string,
-  fields: {
-    status: 'executed' | 'dead-lettered'
-    caseId?: string | null
-    scopeKey?: string | null
-    step?: string | null
-    reason?: DeadLetterReason | null
-    detail?: string | null
-    executionId?: string | null
-  },
-): Promise<void> => {
-  await db.query(
-    `update ${EVENTS}
-     set status = $2, case_id = $3, scope_key = $4, step = $5, reason = $6, detail = $7, execution_id = $8
-     where id = $1`,
-    [
-      id,
-      fields.status,
-      fields.caseId ?? null,
-      fields.scopeKey ?? null,
-      fields.step ?? null,
-      fields.reason ?? null,
-      fields.detail ?? null,
-      fields.executionId ?? null,
-    ],
-  )
-}
-
 const result = (
-  row: EventRow,
+  row: DeliveryRecord,
   status: IngestionStatus,
   extra: Partial<IngestionResult> = {},
 ): IngestionResult => ({
   id: row.id,
   status,
   system: row.system,
-  externalId: row.external_id,
-  idempotencyKey: row.idempotency_key,
+  externalId: row.externalId,
+  idempotencyKey: row.idempotencyKey,
   correlation: null,
   execution: null,
   reason: null,
   detail: null,
-  receivedAt: row.received_at.toISOString(),
+  receivedAt: row.receivedAt,
   ...extra,
 })
 
@@ -368,17 +256,20 @@ export const routedStep = (
  * succeed. Infrastructure failures (the database is gone) do still throw,
  * because those the caller must not acknowledge.
  */
-export const ingest = async (
-  env: IngestionEnvironment,
+export const ingest = async <TCommit>(
+  env: IngestionEnvironment<TCommit>,
   event: ExternalEvent,
 ): Promise<IngestionResult> => {
-  const db = queryableOf(env.db)
   const idempotencyKey = idempotencyKeyFor(event)
-  const { row, fresh } = await claimDelivery(db, event, idempotencyKey)
+  const { row, fresh } = await env.storage.deliveries.acquire(
+    event,
+    idempotencyKey,
+    REOPENABLE,
+  )
   if (!fresh) {
     return result(row, 'duplicate', {
-      reason: (row.reason as DeadLetterReason | null) ?? null,
-      detail: `already ingested as ${row.status} at ${row.received_at.toISOString()}`,
+      reason: row.reason,
+      detail: `already ingested as ${row.status} at ${row.receivedAt}`,
     })
   }
 
@@ -390,7 +281,7 @@ export const ingest = async (
     readonly correlation?: Correlation
     readonly step?: string
   }): Promise<IngestionResult> => {
-    await settle(db, row.id, {
+    await env.storage.deliveries.settle(row.id, {
       status: 'dead-lettered',
       reason: fields.reason,
       detail: fields.detail,
@@ -409,8 +300,7 @@ export const ingest = async (
     })
   }
 
-  const correlation = await lookupCorrelation(
-    db,
+  const correlation = await env.storage.correlations.lookup(
     event.system,
     event.externalId,
   )
@@ -436,7 +326,7 @@ export const ingest = async (
     ...(event.payload !== undefined && { input: event.payload }),
   })
   if (ran.outcome === 'committed') {
-    await settle(db, row.id, {
+    await env.storage.deliveries.settle(row.id, {
       status: 'executed',
       caseId: correlation.caseId,
       scopeKey: correlation.scopeKey,
@@ -465,42 +355,3 @@ export const classifyDeadLetter = (
   isAffordanceError(ran.error)
     ? [ran.error.code, ran.error.message]
     : ['execution-failed', ran.error.message]
-
-const toDeadLetter = (row: EventRow): DeadLetter => ({
-  id: row.id,
-  system: row.system,
-  externalId: row.external_id,
-  type: row.type,
-  idempotencyKey: row.idempotency_key,
-  caseId: row.case_id,
-  scopeKey: row.scope_key,
-  step: row.step,
-  reason: row.reason as DeadLetterReason,
-  detail: row.detail,
-  event: row.event,
-  receivedAt: row.received_at.toISOString(),
-})
-
-/** Read the dead-letter surface, newest first — the ops view of "arrived, did nothing". */
-export const readDeadLetters = async (
-  db: Queryable,
-  filter: DeadLetterFilter = {},
-): Promise<readonly DeadLetter[]> => {
-  const { conditions, values, bind, where } = sqlWhere([
-    `status = 'dead-lettered'`,
-  ])
-
-  if (filter.system !== undefined)
-    conditions.push(`system = ${bind(filter.system)}`)
-  if (filter.caseId !== undefined)
-    conditions.push(`case_id = ${bind(filter.caseId)}`)
-  if (filter.reason !== undefined)
-    conditions.push(`reason = ${bind(filter.reason)}`)
-  const limit = filter.limit === undefined ? '' : ` limit ${bind(filter.limit)}`
-
-  const { rows } = await db.query<EventRow>(
-    `select * from ${EVENTS} where ${where()} order by received_at desc${limit}`,
-    values,
-  )
-  return rows.map(toDeadLetter)
-}

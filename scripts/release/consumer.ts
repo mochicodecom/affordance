@@ -4,14 +4,9 @@ import {
   CONTRACT,
   type ExecutionPayload,
 } from '@affordance/contract'
-import {
-  actor,
-  bootstrap,
-  caseType,
-  createEngine,
-  stepsOf,
-} from '@affordance/core'
+import { actor, caseType, createEngine, stepsOf } from '@affordance/core'
 import { createAffordanceApi, createHonoApp } from '@affordance/http'
+import { bootstrap, createPgStorage } from '@affordance/pg'
 import { Pool } from 'pg'
 import { z } from 'zod'
 
@@ -55,7 +50,10 @@ const pool = new Pool({
 
 try {
   await bootstrap(pool)
-  const engine = createEngine({ db: { pool }, caseTypes: [definition] })
+  const engine = createEngine({
+    storage: createPgStorage({ db: { pool } }),
+    caseTypes: [definition],
+  })
   const app = createHonoApp({
     api: createAffordanceApi({ engine }),
     resolveActor: () => ({ id: 'owner' }),

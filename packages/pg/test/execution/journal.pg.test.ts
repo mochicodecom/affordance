@@ -1,14 +1,15 @@
 import { expectJsonRoundTrips, testPool } from '@affordance/testkit'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { createEngine } from '../../src/engine/index.js'
+import { createEngine } from '../../../core/src/engine/index.js'
 import {
   foldExecutions,
   isClaimedEntry,
-  readJournal,
   replayGuard,
-} from '../../src/execution/index.js'
-import { caseType, step } from '../../src/model/index.js'
-import { insertCase } from '../../src/store/index.js'
+} from '../../../core/src/execution/index.js'
+import { caseType, step } from '../../../core/src/model/index.js'
+import { createPgStorage } from '../../src/index.js'
+import { readJournal } from '../../src/journal.js'
+import { insertCase } from '../../src/store.js'
 import {
   amendmentState,
   control,
@@ -21,7 +22,7 @@ import {
 
 const pool = testPool()
 const engine = createEngine({
-  db: { pool },
+  storage: createPgStorage({ db: { pool } }),
   caseTypes: [purchaseExecution],
   claimTtlMs: 2_000,
   heartbeatMs: 500,

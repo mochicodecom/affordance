@@ -45,7 +45,14 @@ export type DatabaseAccess =
  * client makes no difference.
  */
 export const queryableOf = (db: DatabaseAccess): Queryable =>
-  'pool' in db ? db.pool : db.client
+  'pool' in db
+    ? db.pool
+    : {
+        query: <R extends QueryResultRow = QueryResultRow>(
+          text: string,
+          values?: unknown[],
+        ) => withClient(db.client, () => db.client.query<R>(text, values)),
+      }
 
 declare const transactionBrand: unique symbol
 
@@ -62,4 +69,26 @@ declare const transactionBrand: unique symbol
  */
 export interface Transaction extends Queryable {
   readonly [transactionBrand]: true
+}
+
+// A dedicated connection cannot host overlapping transactions. Single-statement
+// access participates in the same queue so it cannot join an unrelated commit.
+const clientQueues = new WeakMap<Queryable, Promise<void>>()
+export const withClient = async <T>(
+  client: Queryable,
+  fn: () => Promise<T>,
+): Promise<T> => {
+  const previous = clientQueues.get(client) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  clientQueues.set(client, current)
+  await previous
+  try {
+    return await fn()
+  } finally {
+    if (clientQueues.get(client) === current) clientQueues.delete(client)
+    release()
+  }
 }

@@ -5,23 +5,27 @@ import {
   computeAffordances,
   createEngine,
   UnknownCaseTypeError,
-} from '../../src/engine/index.js'
+} from '../../../core/src/engine/index.js'
 import {
   CaseNotFoundError,
   CaseStateValidationError,
-  FRAMEWORK_SCHEMA,
-  insertCase,
-} from '../../src/store/index.js'
+} from '../../../core/src/store/index.js'
 import {
   asOf,
-  housePurchase,
+  housePurchase as fixture,
   organizer,
   PurchaseState,
   readyState,
-} from './fixture.js'
+} from '../../../core/test/engine/fixture.js'
+import { createPgStorage, FRAMEWORK_SCHEMA } from '../../src/index.js'
+import { insertCase } from '../../src/store.js'
 
 const pool = testPool({ max: 5 })
-const engine = createEngine({ db: { pool }, caseTypes: [housePurchase] })
+const housePurchase = { ...fixture, name: `engine-purchase-${randomUUID()}` }
+const engine = createEngine({
+  storage: createPgStorage({ db: { pool } }),
+  caseTypes: [housePurchase],
+})
 
 describe('engine round-trip through Postgres', () => {
   it('createCase via the store, then affordances(caseId, actor) — and it matches the pure computation', async () => {
@@ -34,7 +38,7 @@ describe('engine round-trip through Postgres', () => {
 
     const record = await engine.affordances(created.id, organizer, asOf)
     expect(record.caseId).toBe(created.id)
-    expect(record.caseTypeName).toBe('house-purchase')
+    expect(record.caseTypeName).toBe(housePurchase.name)
     expect(record.endedAt).toBeNull()
     expect(record.affordances).toContainEqual({ step: 'issue-funding-call' })
 
@@ -163,7 +167,10 @@ describe('engine round-trip through Postgres', () => {
 describe('createEngine validation', () => {
   it('rejects duplicate case type names at construction', () => {
     expect(() =>
-      createEngine({ db: { pool }, caseTypes: [housePurchase, housePurchase] }),
-    ).toThrow(/duplicate case type name 'house-purchase'/)
+      createEngine({
+        storage: createPgStorage({ db: { pool } }),
+        caseTypes: [housePurchase, housePurchase],
+      }),
+    ).toThrow(`duplicate case type name '${housePurchase.name}'`)
   })
 })

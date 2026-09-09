@@ -1,3 +1,4 @@
+import { createPgStorage } from '../../src/index.js'
 /**
  * The migration escape hatch against a real database.
  *
@@ -10,11 +11,14 @@ import { randomUUID } from 'node:crypto'
 import { testPool } from '@affordance/testkit'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { createEngine } from '../../src/engine/index.js'
-import { foldExecutions } from '../../src/execution/index.js'
-import { hasMigrated, migrationStepName } from '../../src/migration/index.js'
-import { caseType, step } from '../../src/model/index.js'
-import { FRAMEWORK_SCHEMA } from '../../src/store/index.js'
+import { createEngine } from '../../../core/src/engine/index.js'
+import { foldExecutions } from '../../../core/src/execution/index.js'
+import {
+  hasMigrated,
+  migrationStepName,
+} from '../../../core/src/migration/index.js'
+import { caseType, step } from '../../../core/src/model/index.js'
+import { FRAMEWORK_SCHEMA } from '../../src/index.js'
 
 const pool = testPool()
 
@@ -64,7 +68,10 @@ const ledger = caseType({
   steps: [addNote, closeOut],
 })
 
-const engine = createEngine({ db: { pool }, caseTypes: [ledger] })
+const engine = createEngine({
+  storage: createPgStorage({ db: { pool } }),
+  caseTypes: [ledger],
+})
 
 const MIGRATION = 'buyer-to-buyers'
 
@@ -125,7 +132,13 @@ describe('migrate', () => {
       expect(executions[0]?.delta?.some((op) => op.path === '/buyers/-')).toBe(
         true,
       )
-      expect(await hasMigrated(pool, created.id, MIGRATION)).toBe(true)
+      expect(
+        await hasMigrated(
+          createPgStorage({ db: { pool } }),
+          created.id,
+          MIGRATION,
+        ),
+      ).toBe(true)
     }
 
     // Idempotent: the second run finds nothing left to examine at all.
@@ -172,7 +185,13 @@ describe('migrate', () => {
 
     expect(report).toMatchObject({ scanned: 1, migrated: 0, unchanged: 1 })
     // Marked all the same: "considered, nothing to do" is a provable fact.
-    expect(await hasMigrated(pool, created.id, MIGRATION)).toBe(true)
+    expect(
+      await hasMigrated(
+        createPgStorage({ db: { pool } }),
+        created.id,
+        MIGRATION,
+      ),
+    ).toBe(true)
   })
 
   it('reports progress per case and honours a limit', async () => {
@@ -213,7 +232,13 @@ describe('migrate', () => {
     expect(report).toMatchObject({ dryRun: true, scanned: 1, migrated: 1 })
     expect((await stateOf(created!.id)).buyer).not.toBeNull()
     expect(await engine.journal(created!.id)).toEqual([])
-    expect(await hasMigrated(pool, created!.id, MIGRATION)).toBe(false)
+    expect(
+      await hasMigrated(
+        createPgStorage({ db: { pool } }),
+        created!.id,
+        MIGRATION,
+      ),
+    ).toBe(false)
   })
 
   it('reports a case it could not migrate and leaves it for the next run', async () => {
@@ -240,8 +265,16 @@ describe('migrate', () => {
       /this case confuses the transform/,
     )
     // No marker for the failure, so a corrected run picks it up…
-    expect(await hasMigrated(pool, doomed!.id, MIGRATION)).toBe(false)
-    expect(await hasMigrated(pool, ok!.id, MIGRATION)).toBe(true)
+    expect(
+      await hasMigrated(
+        createPgStorage({ db: { pool } }),
+        doomed!.id,
+        MIGRATION,
+      ),
+    ).toBe(false)
+    expect(
+      await hasMigrated(createPgStorage({ db: { pool } }), ok!.id, MIGRATION),
+    ).toBe(true)
 
     const retry = await engine.migrate(ledger.name, MIGRATION, toCollection, {
       caseIds: cases.map((created) => created.id),

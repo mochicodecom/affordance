@@ -27,7 +27,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 
 /**
  * Structural equality over JSON values. `undefined` never appears in a
- * document that round-tripped through jsonb, but a handler's return value has
+ * document that round-tripped through JSON storage, but a handler's return value has
  * not round-tripped yet, so it is compared as-is.
  */
 export const jsonEqual = (a: unknown, b: unknown): boolean => {

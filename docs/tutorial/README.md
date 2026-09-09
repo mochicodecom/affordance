@@ -54,16 +54,16 @@ has nothing available now. Completion is a domain fact such as `closedAt`.
 
 This simplified purchase needs commitments from every buyer and a title report
 before it can close. The TypeScript snippets below build one example using the
-workspace's `@affordance/core`, Zod, and `pg` dependencies.
+workspace's `@affordance/core`, `@affordance/pg`, Zod, and `pg` dependencies.
 
 ```ts
 import {
   actor,
-  bootstrap,
   caseType,
   createEngine,
   stepsOf,
 } from '@affordance/core'
+import { bootstrap, createPgStorage } from '@affordance/pg'
 import pg from 'pg'
 import { z } from 'zod'
 
@@ -188,7 +188,7 @@ const pool = new pg.Pool({
   connectionString: 'postgres://postgres:postgres@localhost:5432/affordance',
 })
 await bootstrap(pool)
-const engine = createEngine({ db: { pool }, caseTypes: [purchase] })
+const engine = createEngine({ storage: createPgStorage({ db: { pool } }), caseTypes: [purchase] })
 const { id: caseId } = await engine.createCase('tutorial-purchase', {
   buyers: [{ id: 'alice', committedAmount: null }],
   titleReportId: null,

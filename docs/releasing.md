@@ -2,7 +2,7 @@
 
 Updated: 2026-09-06
 
-Publish `@affordance/contract`, `@affordance/core`, and `@affordance/http` together
+Publish `@affordance/contract`, `@affordance/core`, `@affordance/pg`, and `@affordance/http` together
 at the same version, starting with `0.1.0`. The root, reference app, UI, and
 testkit remain private. Packages contain compiled ESM, TypeScript declarations,
 source maps with embedded source, a README, and the MIT license.
@@ -50,7 +50,7 @@ pnpm release:publish
 ```
 
 Complete npm's authentication or two-factor prompt in your terminal. This
-uploads the tested tarballs in dependency order: contract, core, then HTTP,
+uploads the tested tarballs in dependency order: contract, core, Postgres, then HTTP,
 with public access and the `latest` tag. It never rebuilds during publication.
 If an upload fails, rerun with the same artifacts: already-published versions
 are skipped only when their registry checksum matches.
@@ -58,7 +58,7 @@ are skipped only when their registry checksum matches.
 ## Enable releases from GitHub
 
 After creating the packages, configure a trusted publisher in **Settings →
-Trusted publishing** for each of the three packages on npm:
+Trusted publishing** for each of the four packages on npm:
 
 | Field | Value |
 | --- | --- |
@@ -77,6 +77,7 @@ With npm 11.19+, the same package setup is available from the CLI:
 ```bash
 npm trust github @affordance/contract --file release.yml --repo mochicodecom/affordance --env npm --allow-publish
 npm trust github @affordance/core --file release.yml --repo mochicodecom/affordance --env npm --allow-publish
+npm trust github @affordance/pg --file release.yml --repo mochicodecom/affordance --env npm --allow-publish
 npm trust github @affordance/http --file release.yml --repo mochicodecom/affordance --env npm --allow-publish
 ```
 

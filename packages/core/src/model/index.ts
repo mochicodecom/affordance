@@ -20,6 +20,7 @@ export type {
 export { caseType } from './casetype.js'
 export { ScopeKeyError, UnknownStepError } from './errors.js'
 export type {
+  CommitEffect,
   CommitWrite,
   CorrelationRequest,
   ErasedStepHandler,
@@ -40,6 +41,7 @@ export type {
 export type {
   ActorMarker,
   BoundStep,
+  CommitContextMarker,
   ScopedStepOptions,
   StepDefinition,
   StepMetadata,
@@ -47,6 +49,7 @@ export type {
 } from './step.js'
 export {
   actor,
+  commitContext,
   StepInputValidationError,
   step,
   stepsOf,

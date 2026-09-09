@@ -12,11 +12,6 @@
  */
 
 export type { Correlation, CorrelationRegistration } from './correlation.js'
-export {
-  correlationsFor,
-  lookupCorrelation,
-  registerCorrelation,
-} from './correlation.js'
 export type {
   DeadLetter,
   DeadLetterFilter,
@@ -36,6 +31,5 @@ export {
   ingest,
   normalizeIngestion,
   REOPENS_ON_REDELIVERY,
-  readDeadLetters,
   routedStep,
 } from './ingest.js'

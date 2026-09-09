@@ -17,9 +17,13 @@ import type { StepDefinition } from './step.js'
 import { isStandardSchema, looksLikeStepDefinition } from './step.js'
 
 /** Options for {@link caseType}. */
-export interface CaseTypeOptions<S extends StandardSchemaV1, TActor = unknown> {
+export interface CaseTypeOptions<
+  S extends StandardSchemaV1,
+  TActor = unknown,
+  TCommit = unknown,
+> {
   /**
-   * The case type's name — what `cases.case_type` records. Only the name is
+   * The case type's name — what the persisted case records. Only the name is
    * stored: the code definition floats, meaning existing cases always run
    * against the latest deployed definition.
    */
@@ -29,7 +33,8 @@ export interface CaseTypeOptions<S extends StandardSchemaV1, TActor = unknown> {
   /** The case type's steps, in declaration order (which affordance listings preserve). */
   readonly steps: readonly StepDefinition<
     StandardSchemaV1.InferOutput<S>,
-    TActor
+    TActor,
+    TCommit
   >[]
 }
 
@@ -37,17 +42,21 @@ export interface CaseTypeOptions<S extends StandardSchemaV1, TActor = unknown> {
 export interface CaseTypeDefinition<
   S extends StandardSchemaV1 = StandardSchemaV1,
   TActor = unknown,
+  TCommit = unknown,
 > {
   readonly name: string
   readonly state: S
   readonly steps: readonly StepDefinition<
     StandardSchemaV1.InferOutput<S>,
-    TActor
+    TActor,
+    TCommit
   >[]
   /** Look up a step by name; `undefined` when the case type declares no such step. */
   readonly getStep: (
     name: string,
-  ) => StepDefinition<StandardSchemaV1.InferOutput<S>, TActor> | undefined
+  ) =>
+    | StepDefinition<StandardSchemaV1.InferOutput<S>, TActor, TCommit>
+    | undefined
 }
 
 /**
@@ -63,7 +72,11 @@ export interface CaseTypeDefinition<
 // or narrower schema type is assignable (S feeds both the state property and
 // condition/handler parameters), so any narrower existential would reject
 // every concrete schema.
-export type AnyCaseType = CaseTypeDefinition<any, any>
+export type AnyCaseType<TCommit = unknown> = CaseTypeDefinition<
+  any,
+  any,
+  TCommit
+>
 
 /**
  * Define a case type. Validates loudly at construction time:
@@ -73,9 +86,13 @@ export type AnyCaseType = CaseTypeDefinition<any, any>
  * - step names must be unique within the case type — a duplicate would make
  *   affordance identity (step × scope key) ambiguous
  */
-export const caseType = <S extends StandardSchemaV1, TActor = unknown>(
-  options: CaseTypeOptions<S, TActor>,
-): CaseTypeDefinition<S, TActor> => {
+export const caseType = <
+  S extends StandardSchemaV1,
+  TActor = unknown,
+  TCommit = unknown,
+>(
+  options: CaseTypeOptions<S, TActor, TCommit>,
+): CaseTypeDefinition<S, TActor, TCommit> => {
   const { name, state, steps } = options
   if (typeof name !== 'string' || name.trim() === '') {
     throw new TypeError('caseType: name must be a non-empty string')
@@ -93,7 +110,7 @@ export const caseType = <S extends StandardSchemaV1, TActor = unknown>(
 
   const byName = new Map<
     string,
-    StepDefinition<StandardSchemaV1.InferOutput<S>, TActor>
+    StepDefinition<StandardSchemaV1.InferOutput<S>, TActor, TCommit>
   >()
   for (const definition of steps) {
     if (!looksLikeStepDefinition(definition)) {

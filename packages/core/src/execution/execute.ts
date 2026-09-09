@@ -3,7 +3,7 @@
  *
  * ```
  *   ┌── transaction ──────────────┐                    ┌── transaction ──────────────┐
- *   │ lock the case row           │                    │ lock the case row           │
+ *   │ serialize the case          │                    │ serialize the case          │
  *   │ take over an expired claim  │   handler runs     │ verify the claim is ours    │
  *   │ re-evaluate the guard  ←────┼── here, outside ───┼→ write state, bump seq      │
  *   │ insert the claim (lease)    │   any transaction  │ run ctx.onCommit writes     │
@@ -20,9 +20,8 @@
  *    same race, handled the same way). A claim that fails rejects with the
  *    *current* unmet conditions and writes nothing at all.
  * 2. **No transaction spans a handler.** Handlers call the outside world;
- *    a transaction held across an escrow API call would tie up a pooled
- *    connection and the case row's lock for as long as the external service
- *    takes to answer. The lease (a `claims` row keyed by case id) carries
+ *    an atomic case operation held across an external call would block other
+ *    work for as long as the provider takes to answer. An expiring claim carries
  *    the exclusivity instead, and a heartbeat keeps it alive.
  * 3. **A crashed handler cannot deadlock a case.** The lease expires. The
  *    next claimant takes the case over, journaling the abandonment; if the
@@ -34,9 +33,9 @@
 import { thrownMessage, toError } from '../errors.js'
 import type { GuardEvaluation, Instant } from '../guards/index.js'
 import { toIso } from '../guards/index.js'
-import { registerCorrelation } from '../ingestion/correlation.js'
 import type {
   AnyCaseType,
+  CommitEffect,
   CommitWrite,
   CorrelationRequest,
   RetryOptions,
@@ -49,8 +48,9 @@ import {
   resolveTarget,
   validateStepInput,
 } from '../model/index.js'
-import type { DatabaseAccess, Dormancy } from '../store/index.js'
-import { mintId, validateCaseState } from '../store/index.js'
+import type { EngineStorage } from '../storage.js'
+import type { Dormancy } from '../store/index.js'
+import { mintId, resolveCase, validateCaseState } from '../store/index.js'
 import type { StateDelta } from './delta.js'
 import { diffState } from './delta.js'
 import {
@@ -61,7 +61,6 @@ import {
 } from './errors.js'
 import type { JournalError } from './journal.js'
 import type { LifecyclePort, LifecycleTx } from './port.js'
-import { pgLifecyclePort } from './port.js'
 import type { Timers } from './timers.js'
 
 /** How long a claim survives without a heartbeat, and how often the heartbeat beats. */
@@ -69,10 +68,10 @@ export const DEFAULT_CLAIM_TTL_MS = 30_000
 export const DEFAULT_HEARTBEAT_MS = 5_000
 
 /** What {@link executeStep} needs from its caller (the engine supplies all of it). */
-export interface ExecutionEnvironment {
-  readonly db: DatabaseAccess
+export interface ExecutionEnvironment<TCommit = unknown> {
+  readonly storage: EngineStorage<TCommit>
   /** Resolve a persisted `case_type` name to its registered definition; throws if unknown. */
-  readonly caseTypeFor: (caseTypeName: string) => AnyCaseType
+  readonly caseTypeFor: (caseTypeName: string) => AnyCaseType<TCommit>
   readonly claimTtlMs: number
   readonly heartbeatMs: number
   /**
@@ -132,11 +131,11 @@ export interface ExecutionResult<TState = unknown> {
 }
 
 /** A held claim plus everything the run and commit phases need from the claim transaction. */
-interface Claim {
+interface Claim<TCommit> {
   readonly executionId: string
   readonly caseTypeName: string
-  readonly definition: AnyCaseType
-  readonly target: StepTarget<unknown, unknown>
+  readonly definition: AnyCaseType<TCommit>
+  readonly target: StepTarget<unknown, unknown, TCommit>
   readonly state: unknown
   readonly input: unknown
   readonly asOf: string
@@ -167,7 +166,7 @@ const toJournalError = (error: unknown): JournalError =>
 
 /**
  * Resolve whatever claim already sits on this case, inside the claim
- * transaction (the case row is locked, so no two claimants decide this at
+ * transaction (the case operation is serialized, so no two claimants decide this at
  * once): a live claim means the case is busy; an expired one is a crashed
  * handler's abandoned lease — journal the abandonment and take it.
  *
@@ -177,8 +176,8 @@ const toJournalError = (error: unknown): JournalError =>
  * nothing, and the abandonment is only a fact worth recording when somebody
  * actually took the case over.
  */
-const clearStaleClaim = async (
-  tx: LifecycleTx,
+const clearStaleClaim = async <TCommit>(
+  tx: LifecycleTx<TCommit>,
   caseId: string,
   claimant: string,
 ): Promise<void> => {
@@ -209,10 +208,11 @@ const clearStaleClaim = async (
 
 /**
  * What the lifecycle core needs besides storage: the clock, the timers, and
- * the lease timings. Definition resolution is the port's own (its `loadCase`
- * returns the case resolved whole), so it is no part of this interface.
+ * the lease timings and registry. Storage returns raw records; definition
+ * resolution and schema validation belong to this shared lifecycle.
  */
-export interface LifecycleDeps {
+export interface LifecycleDeps<TCommit = unknown> {
+  readonly caseTypeFor: (caseTypeName: string) => AnyCaseType<TCommit>
   readonly now: () => Date
   readonly timers: Timers
   readonly claimTtlMs: number
@@ -222,21 +222,24 @@ export interface LifecycleDeps {
 /**
  * The claim: one short transaction that either takes the case and journals a
  * `claimed` entry, or writes nothing and throws the reason. Loading, guard
- * re-evaluation, and the exclusivity decision all happen under the case row's
- * lock, which is what makes "exactly one of N concurrent attempts claims"
+ * re-evaluation, and the exclusivity decision all happen under the case's
+ * serialization, which is what makes "exactly one of N concurrent attempts claims"
  * true rather than likely.
  */
-const claimCase = async (
-  port: LifecyclePort,
-  deps: LifecycleDeps,
+const claimCase = async <TCommit>(
+  port: LifecyclePort<TCommit>,
+  deps: LifecycleDeps<TCommit>,
   caseId: string,
   stepName: string,
   options: ExecuteOptions,
   executionId: string,
   claimTtlMs: number,
-): Promise<Claim> =>
-  port.withCaseLock(caseId, async (tx) => {
-    const { definition, handle, state } = await tx.loadCase()
+): Promise<Claim<TCommit>> =>
+  port.withCase(caseId, async (tx) => {
+    const { definition, handle, state } = await resolveCase(
+      await tx.loadCase(),
+      deps.caseTypeFor,
+    )
 
     await clearStaleClaim(tx, caseId, executionId)
 
@@ -245,7 +248,7 @@ const claimCase = async (
       state,
       stepName,
       options.scopeKey,
-    ) as StepTarget<unknown, unknown>
+    ) as StepTarget<unknown, unknown, TCommit>
     const scopeKey = target.binding?.key ?? null
     const input = await validateStepInput(target.step, options.input)
 
@@ -296,24 +299,23 @@ const claimCase = async (
  * The commit: the new Case State, the app's own writes, and the `completed`
  * journal entry, all in one transaction — or none of them.
  */
-const commitExecution = async (
-  port: LifecyclePort,
-  claim: Claim,
+const commitExecution = async <TCommit>(
+  port: LifecyclePort<TCommit>,
+  claim: Claim<TCommit>,
   caseId: string,
   stepName: string,
   nextState: unknown,
   attempt: number,
   dormancy: Dormancy | null,
-  writes: readonly CommitWrite[],
+  writes: readonly CommitEffect<TCommit>[],
 ): Promise<ExecutionResult> => {
   // Both inputs are fixed before the transaction opens, so the deep diff —
-  // pure CPU over the whole state document — runs before the row lock is
-  // taken, not while holding it.
+  // pure CPU over the whole state document — runs before case serialization
+  // begins, not while holding it.
   const delta = diffState(claim.state, nextState)
-  return port.withCaseLock(caseId, async (tx) => {
-    await tx.lockCase()
+  return port.withCase(caseId, async (tx) => {
     // The one check that makes a stale write impossible. Changing Case State
-    // requires holding the claim, and taking the claim over replaces this row
+    // requires holding the claim, and taking the claim over replaces this ownership record
     // — so finding our own execution id here means nothing has committed on
     // this case since we claimed it, and the state the handler computed from
     // is still current. An expired-but-undisturbed lease therefore commits
@@ -325,7 +327,7 @@ const commitExecution = async (
     }
 
     const updated = await tx.updateCaseState(nextState, dormancy)
-    await tx.appWrites(writes)
+    await tx.applyEffects(writes)
 
     const entry = await tx.appendEntry({
       caseId,
@@ -362,13 +364,13 @@ const commitExecution = async (
 /**
  * The lifecycle core: claim → run → commit against a {@link LifecyclePort}.
  *
- * {@link executeStep} binds this to the pg port; the claim state machine's
+ * {@link executeStep} supplies the configured storage adapter; the claim state machine's
  * own tests bind it to an in-memory port instead. Same body either way — the
  * port is the only storage the lifecycle knows.
  */
-export const runLifecycle = async (
-  port: LifecyclePort,
-  deps: LifecycleDeps,
+export const runLifecycle = async <TCommit>(
+  port: LifecyclePort<TCommit>,
+  deps: LifecycleDeps<TCommit>,
   caseId: string,
   stepName: string,
   options: ExecuteOptions,
@@ -416,7 +418,7 @@ export const runLifecycle = async (
     for (let attempt = 1; ; attempt += 1) {
       // Per-attempt, never carried over: a failed attempt's registered writes
       // and dormancy intent are discarded with the attempt that made them.
-      const writes: CommitWrite[] = []
+      const writes: CommitEffect<TCommit>[] = []
       let dormancy: Dormancy | null = null
 
       const context = {
@@ -426,8 +428,8 @@ export const runLifecycle = async (
         input: claim.input,
         attempt,
         maxAttempts: policy.maxAttempts,
-        onCommit: (write: CommitWrite) => {
-          writes.push(write)
+        onCommit: (write: CommitWrite<TCommit>) => {
+          writes.push({ kind: 'write', write })
         },
         // Correlation is an ordinary commit write: the mapping
         // lands in the same transaction as the state that says the external
@@ -435,15 +437,16 @@ export const runLifecycle = async (
         // its own element — an envelope sent for buyer #7 belongs to
         // buyer #7 unless the handler says otherwise.
         correlate: (request: CorrelationRequest) => {
-          writes.push(async (tx) => {
-            await registerCorrelation(tx, {
+          writes.push({
+            kind: 'correlation',
+            registration: {
               ...request,
               caseId,
               scopeKey:
                 request.scopeKey === undefined
                   ? claim.scopeKey
                   : request.scopeKey,
-            })
+            },
           })
         },
         end: () => {
@@ -531,21 +534,15 @@ export const runLifecycle = async (
  * run out, a `failed` entry is journaled, the case is released, and
  * {@link StepExecutionError} is thrown.
  *
- * This is {@link runLifecycle} bound to the pg port.
+ * This runs the shared lifecycle with the configured storage adapter.
  */
-export const executeStep = async (
-  env: ExecutionEnvironment,
+export const executeStep = async <TCommit>(
+  env: ExecutionEnvironment<TCommit>,
   caseId: string,
   stepName: string,
   options: ExecuteOptions,
 ): Promise<ExecutionResult> =>
-  runLifecycle(
-    pgLifecyclePort(env.db, env.caseTypeFor),
-    env,
-    caseId,
-    stepName,
-    options,
-  )
+  runLifecycle(env.storage.execution, env, caseId, stepName, options)
 
 // ── The system runner ──────────────────────────────────────────────────────
 //
@@ -582,13 +579,13 @@ export interface SystemSettled {
 export type SystemRunOutcome = SystemCommit | SystemSettled
 
 /** What a sweep may ask for beyond the lifecycle's own execute options. */
-export interface SystemRunOptions extends ExecuteOptions {
+export interface SystemRunOptions<TCommit = unknown> extends ExecuteOptions {
   /**
    * Run against this definition instead of the registry's — how a migration
    * executes its synthetic `migrate:<name>` step. First-class here so no
    * sweep has to smuggle a definition in by rewriting `caseTypeFor`.
    */
-  readonly definition?: AnyCaseType
+  readonly definition?: AnyCaseType<TCommit>
 }
 
 /**
@@ -607,14 +604,14 @@ export const settleSystemRun = (error: unknown): SystemSettled => ({
  * so the answer is a value — committed (with the result) or settled (with
  * the error) — and each sweep decides what its kind of sweep does with it.
  */
-export const runAsSystem = async (
-  env: ExecutionEnvironment,
+export const runAsSystem = async <TCommit>(
+  env: ExecutionEnvironment<TCommit>,
   caseId: string,
   stepName: string,
-  options: SystemRunOptions,
+  options: SystemRunOptions<TCommit>,
 ): Promise<SystemRunOutcome> => {
   const { definition, ...lifecycleOptions } = options
-  const environment: ExecutionEnvironment =
+  const environment: ExecutionEnvironment<TCommit> =
     definition === undefined ? env : { ...env, caseTypeFor: () => definition }
   try {
     return {

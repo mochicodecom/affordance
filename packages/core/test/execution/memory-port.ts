@@ -1,20 +1,5 @@
-/**
- * The in-memory lifecycle adapter — the port's second adapter, which is what
- * makes the seam real.
- *
- * Honest about the two semantics the lifecycle actually leans on:
- * transactionality (a `withCaseLock` body that throws rolls its writes back
- * — the takeover-then-guard-refusal case depends on it) and lease expiry
- * against an injectable clock. Locking itself is vacuous: these tests are
- * single-threaded, and "exactly one of N concurrent claimants" stays proven
- * against the real row lock in `execute.pg.test.ts`.
- *
- * The fake's interface is deliberately no wider than seeding and observing.
- * Its maps are private: everything that *changes* mid-run goes through the
- * port's own verbs (the pg suites' equivalent is SQL fixtures before the
- * run, never writes around the engine during one), so a test cannot quietly
- * depend on state the port could never produce.
- */
+/** Focused lifecycle fixture with a virtual clock. The full non-SQL adapter
+ * and shared contract tests live in test/storage/. */
 
 import type {
   HeldClaim,
@@ -24,8 +9,7 @@ import type {
   LifecycleTx,
 } from '../../src/execution/index.js'
 import { projectEntry } from '../../src/execution/index.js'
-import type { CaseTypeLookup, Transaction } from '../../src/store/index.js'
-import { CaseNotFoundError, validateCaseState } from '../../src/store/index.js'
+import { CaseNotFoundError } from '../../src/store/index.js'
 
 /** A case row as the fake observes it — a snapshot, not live storage. */
 export interface MemoryCaseRow {
@@ -73,13 +57,7 @@ export interface MemoryStore {
   readonly claim: (caseId: string) => HeldClaim | null
 }
 
-/** App `ctx.onCommit` writes receive a transaction handle; in memory it is inert. */
-const inertTx = { query: async () => ({ rows: [] }) } as unknown as Transaction
-
-export const memoryStore = (
-  now: () => Date,
-  caseTypeFor: CaseTypeLookup,
-): MemoryStore => {
+export const memoryStore = (now: () => Date): MemoryStore => {
   const cases = new Map<string, CaseCell>()
   const claims = new Map<string, ClaimCell>()
   const journal: JournalEntry[] = []
@@ -114,7 +92,6 @@ export const memoryStore = (
     loadCase: async () => {
       const row = cases.get(caseId)
       if (!row) throw new CaseNotFoundError(caseId)
-      const definition = caseTypeFor(row.caseTypeName)
       const handle = {
         id: caseId,
         caseTypeName: row.caseTypeName,
@@ -124,17 +101,7 @@ export const memoryStore = (
         createdAt: new Date(0),
         updatedAt: new Date(0),
       }
-      // The real validation, not a stub of it — the resolved triple is the
-      // port's contract, and both adapters go through the same load,
-      // resolve, validate sequence.
-      return {
-        definition,
-        handle,
-        state: await validateCaseState(definition, row.state),
-      }
-    },
-    lockCase: async () => {
-      if (!cases.has(caseId)) throw new CaseNotFoundError(caseId)
+      return handle
     },
     currentClaim: async () => heldClaim(caseId),
     insertClaim: async (executionId, step, scopeKey, ttlMs) => {
@@ -163,13 +130,18 @@ export const memoryStore = (
         endedAt: row.endedAt === null ? null : row.endedAt.toISOString(),
       }
     },
-    appWrites: async (writes) => {
-      for (const write of writes) await write(inertTx)
+    applyEffects: async (effects) => {
+      for (const effect of effects) {
+        if (effect.kind === 'write') await effect.write(undefined)
+        else
+          throw new Error('Use the full memory adapter for correlation tests')
+      }
     },
   })
 
   const port: LifecyclePort = {
-    withCaseLock: async (caseId, fn) => {
+    withCase: async (caseId, fn) => {
+      if (!cases.has(caseId)) throw new CaseNotFoundError(caseId)
       // Rollback by snapshot: the pg adapter's transaction is what lets a
       // takeover's `expired` entry vanish when the guard then refuses.
       const before = {

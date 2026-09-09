@@ -9,7 +9,7 @@
  * document that fails validation is a real decision, so it is expressed
  * here as the interface rather than left to each caller:
  *
- * - {@link resolveCase} / {@link resolveCaseForUpdate} are **loud**. Their
+ * - {@link resolveCase} are **loud**. Their
  *   callers were handed a case id by somebody and owe them an answer about
  *   *that* case; a document that no longer validates is an app bug and says
  *   so ({@link CaseStateValidationError}).
@@ -23,20 +23,17 @@
 
 import type { AnyCaseType } from '../model/index.js'
 import { CaseStateValidationError } from './errors.js'
-import type { Queryable, Transaction } from './queryable.js'
 import type { CaseHandle } from './store.js'
-import {
-  selectCaseForUpdate,
-  selectCaseUntyped,
-  validateAgainstSchema,
-} from './store.js'
+import { validateAgainstSchema } from './store.js'
 
 /** Resolve a persisted `case_type` name to its registered definition; throws if unknown. */
-export type CaseTypeLookup = (caseTypeName: string) => AnyCaseType
+export type CaseTypeLookup<TCommit = unknown> = (
+  caseTypeName: string,
+) => AnyCaseType<TCommit>
 
 /** A case row, its Case Type definition, and its validated Case State. */
-export interface ResolvedCase {
-  readonly definition: AnyCaseType
+export interface ResolvedCase<TCommit = unknown> {
+  readonly definition: AnyCaseType<TCommit>
   /** The row as persisted. Its `state` is the raw document; prefer {@link ResolvedCase.state}. */
   readonly handle: CaseHandle<unknown>
   /** The stored Case State, validated against the definition's schema (defaults applied). */
@@ -51,8 +48,8 @@ export interface ResolvedCase {
  * for a handler's return. One function, because "does this document satisfy
  * the case type" is one question however the document was obtained.
  */
-export const validateCaseState = async (
-  definition: AnyCaseType,
+export const validateCaseState = async <TCommit>(
+  definition: AnyCaseType<TCommit>,
   value: unknown,
   context = 'stored state',
 ): Promise<unknown> => validateAgainstSchema(definition.state, value, context)
@@ -69,8 +66,8 @@ export const validateCaseState = async (
  * Wrapped in an object rather than returned bare, because a valid Case State
  * may legitimately *be* `null` and a sweep must not confuse the two.
  */
-export const resolveStoredState = async (
-  definition: AnyCaseType,
+export const resolveStoredState = async <TCommit>(
+  definition: AnyCaseType<TCommit>,
   value: unknown,
 ): Promise<{ readonly state: unknown } | null> => {
   try {
@@ -81,33 +78,18 @@ export const resolveStoredState = async (
   }
 }
 
-const resolved = async (
+export const resolveCase = async <TCommit>(
   handle: CaseHandle<unknown>,
-  caseTypeFor: CaseTypeLookup,
-): Promise<ResolvedCase> => {
+  caseTypeFor: CaseTypeLookup<TCommit>,
+): Promise<ResolvedCase<TCommit>> => {
   const definition = caseTypeFor(handle.caseTypeName)
   return {
     definition,
     handle,
-    state: await validateCaseState(definition, handle.state),
+    state: await validateCaseState(
+      definition,
+      handle.state,
+      `stored state for case '${handle.id}'`,
+    ),
   }
 }
-
-/** Load a case and resolve it against the registered definitions. Loud — see this module's note. */
-export const resolveCase = async (
-  db: Queryable,
-  caseTypeFor: CaseTypeLookup,
-  caseId: string,
-): Promise<ResolvedCase> =>
-  resolved(await selectCaseUntyped(db, caseId), caseTypeFor)
-
-/**
- * {@link resolveCase} taking the case row's lock — the execution lifecycle's
- * serialization point.
- */
-export const resolveCaseForUpdate = async (
-  tx: Transaction,
-  caseTypeFor: CaseTypeLookup,
-  caseId: string,
-): Promise<ResolvedCase> =>
-  resolved(await selectCaseForUpdate(tx, caseId), caseTypeFor)

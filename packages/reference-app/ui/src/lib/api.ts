@@ -108,9 +108,20 @@ async function getJson(path: string, headers?: Record<string, string>) {
 }
 
 export async function fetchCases(): Promise<CaseSummary[]> {
-  const { status, body } = await getJson('/dev/cases')
-  if (status !== 200) throw new Error(`GET /dev/cases → ${status}`)
-  return (body as { cases: CaseSummary[] }).cases
+  const cases: CaseSummary[] = []
+  let cursor: string | null = null
+  do {
+    const url =
+      cursor === null
+        ? '/dev/cases'
+        : `/dev/cases?cursor=${encodeURIComponent(cursor)}`
+    const { status, body } = await getJson(url)
+    if (status !== 200) throw new Error(`GET /dev/cases → ${status}`)
+    const page = body as { cases: CaseSummary[]; nextCursor: string | null }
+    cases.push(...page.cases)
+    cursor = page.nextCursor
+  } while (cursor !== null)
+  return cases
 }
 
 /** The three reads behind everything on the page, refetched together. */

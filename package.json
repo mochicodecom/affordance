@@ -23,7 +23,7 @@
     "test": "pnpm build && vitest run",
     "db:up": "docker compose up -d --wait postgres",
     "db:down": "docker compose down",
-    "build": "pnpm -r --filter @affordance/contract --filter @affordance/core --filter @affordance/http run build",
+    "build": "pnpm -r --filter @affordance/contract --filter @affordance/core --filter @affordance/pg --filter @affordance/http run build",
     "release:pack": "pnpm build && node scripts/release/pack.mjs",
     "release:smoke": "node scripts/release/smoke.mjs",
     "release:check": "pnpm lint && pnpm typecheck && pnpm --filter @affordance/reference-app ui:build && pnpm test && pnpm release:pack && pnpm release:smoke",

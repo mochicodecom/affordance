@@ -1,7 +1,7 @@
 /**
  * The engine: the case-type registry bound to the case store.
  *
- * `createEngine({ db, caseTypes })` wires the halves together — persistence
+ * `createEngine({ storage, caseTypes })` wires the halves together — persistence
  * (`../store`), guard evaluation (`../guards`), the definition API
  * (`../model`) and the execution lifecycle (`../execution`) — into the
  * framework's public face: `affordances`, `explain`, `execute`, `journal`.
@@ -23,9 +23,7 @@ import {
   DEFAULT_CLAIM_TTL_MS,
   DEFAULT_HEARTBEAT_MS,
   executeStep,
-  readJournal,
   realTimers,
-  withTransaction,
 } from '../execution/index.js'
 import type { Instant } from '../guards/index.js'
 import type {
@@ -38,14 +36,7 @@ import type {
   IngestionOptions,
   IngestionResult,
 } from '../ingestion/index.js'
-import {
-  correlationsFor,
-  ingest,
-  lookupCorrelation,
-  normalizeIngestion,
-  readDeadLetters,
-  registerCorrelation,
-} from '../ingestion/index.js'
+import { ingest, normalizeIngestion } from '../ingestion/index.js'
 import type {
   MigrationOptions,
   MigrationReport,
@@ -53,8 +44,9 @@ import type {
 } from '../migration/index.js'
 import { migrate } from '../migration/index.js'
 import type { AnyCaseType, StepMetadata } from '../model/index.js'
-import type { CaseHandle, DatabaseAccess } from '../store/index.js'
-import { insertCase, queryableOf, resolveCase } from '../store/index.js'
+import type { CaseListOptions, CasePage, EngineStorage } from '../storage.js'
+import type { CaseHandle } from '../store/index.js'
+import { resolveCase, validateAgainstSchema } from '../store/index.js'
 import type {
   AffordanceExplanation,
   CaseAffordances,
@@ -69,18 +61,11 @@ import {
 import { UnknownCaseTypeError } from './errors.js'
 
 /** Options for {@link createEngine}. */
-export interface EngineOptions {
-  /**
-   * The app brings its database, declaring which kind of handle it has:
-   * `{ pool }` for anything that checks out connections (`pg.Pool`, or any
-   * wrapper declaring `connect()`), `{ client }` for a single connection
-   * dedicated to the engine. The declaration is what lets `execute` run its
-   * transactions on one connection without guessing — see
-   * {@link DatabaseAccess}.
-   */
-  readonly db: DatabaseAccess
+export interface EngineOptions<TCommit = unknown> {
+  /** One coordinated storage implementation for all engine persistence. */
+  readonly storage: EngineStorage<TCommit>
   /** Every case type this engine serves; a loaded case's `case_type` must name one of them. */
-  readonly caseTypes: readonly AnyCaseType[]
+  readonly caseTypes: readonly AnyCaseType<NoInfer<TCommit>>[]
   /**
    * How long an Execution's claim survives without a heartbeat (default 30s).
    * The floor on how long a crashed handler can hold a case.
@@ -94,13 +79,9 @@ export interface EngineOptions {
    */
   readonly ingestion?: IngestionOptions
   /**
-   * The clock — every process-side "as of now" below the boundary reads
-   * through it: guard evaluation instants, journal timestamps, ingestion
-   * receipt times. Defaults to the wall clock. Two "nows" it deliberately
-   * does not govern: lease expiry is judged by the storage adapter's own
-   * clock (the one clock all competing processes share), and the retry
-   * delay / heartbeat cadence run on process timers (an internal seam the
-   * lifecycle's own tests drive virtually).
+   * Clock for guard evaluation instants, defaulting to the wall clock.
+   * Stored timestamps and claim expiry belong to the adapter's clock;
+   * heartbeat cadence and retry delays use process timers.
    */
   readonly now?: () => Date
 }
@@ -115,6 +96,9 @@ export interface EngineOptions {
 export type ExplainOptions = ExplainRequest
 
 export interface Engine {
+  /** List validated cases of registered types, newest first. Throws on unreadable state. */
+  listCases(options?: CaseListOptions): Promise<CasePage>
+
   /**
    * Create a case of a registered case type. The initial state is validated
    * against the type's schema.
@@ -253,13 +237,15 @@ export interface Engine {
 }
 
 /**
- * Build an engine from the app's database and its case type definitions.
+ * Build an engine from the app's storage and its case type definitions.
  * Throws at construction on duplicate case type names — the registry is
  * keyed by name, which is all a case row records (definitions
  * float; only the name is persisted).
  */
-export const createEngine = (options: EngineOptions): Engine => {
-  const registry = new Map<string, AnyCaseType>()
+export const createEngine = <TCommit>(
+  options: EngineOptions<TCommit>,
+): Engine => {
+  const registry = new Map<string, AnyCaseType<TCommit>>()
   for (const definition of options.caseTypes) {
     if (registry.has(definition.name)) {
       throw new TypeError(
@@ -269,7 +255,7 @@ export const createEngine = (options: EngineOptions): Engine => {
     registry.set(definition.name, definition)
   }
 
-  const caseTypeFor = (caseTypeName: string): AnyCaseType => {
+  const caseTypeFor = (caseTypeName: string): AnyCaseType<TCommit> => {
     const definition = registry.get(caseTypeName)
     if (definition === undefined) {
       throw new UnknownCaseTypeError(caseTypeName, [...registry.keys()])
@@ -279,14 +265,12 @@ export const createEngine = (options: EngineOptions): Engine => {
 
   const now = options.now ?? (() => new Date())
 
-  // Single self-contained statements run against either arm alike; only
-  // transactions (and the lifecycle behind them) need the declaration itself.
-  const db = queryableOf(options.db)
+  const storage = options.storage
 
   // The widest environment any subsystem asks for (IngestionEnvironment ⊇
   // ExecutionEnvironment), built once and handed to all of them.
-  const environment: IngestionEnvironment = {
-    db: options.db,
+  const environment: IngestionEnvironment<TCommit> = {
+    storage,
     caseTypeFor,
     claimTtlMs: options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS,
     heartbeatMs: options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
@@ -298,11 +282,13 @@ export const createEngine = (options: EngineOptions): Engine => {
   /** Load the case, resolve its type from the registry, validate state against the type's schema. */
   const load = async (
     caseId: string,
-  ): Promise<{ definition: AnyCaseType; snapshot: CaseSnapshot<unknown> }> => {
+  ): Promise<{
+    definition: AnyCaseType<TCommit>
+    snapshot: CaseSnapshot<unknown>
+  }> => {
     const { definition, handle, state } = await resolveCase(
-      db,
+      await storage.cases.get(caseId),
       caseTypeFor,
-      caseId,
     )
     return {
       definition,
@@ -311,11 +297,38 @@ export const createEngine = (options: EngineOptions): Engine => {
   }
 
   return {
+    listCases: async (options = {}) => {
+      const limit = options.limit ?? 100
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        throw new TypeError(
+          'listCases: limit must be an integer between 1 and 1000',
+        )
+      }
+      const caseTypeNames =
+        options.caseTypeName === undefined
+          ? [...registry.keys()]
+          : [caseTypeFor(options.caseTypeName).name]
+      const page = await storage.cases.list({
+        ...options,
+        caseTypeNames,
+        limit,
+      })
+      const cases = await Promise.all(
+        page.cases.map(async (stored) => {
+          const { handle, state } = await resolveCase(stored, caseTypeFor)
+          return { ...handle, state }
+        }),
+      )
+      return { cases, nextCursor: page.nextCursor }
+    },
     createCase: async (caseTypeName, initialState) => {
       const definition = caseTypeFor(caseTypeName)
-      return withTransaction(options.db, (tx) =>
-        insertCase(tx, caseTypeName, definition.state, initialState),
+      const state = await validateAgainstSchema(
+        definition.state,
+        initialState,
+        'initial state',
       )
+      return storage.cases.create(caseTypeName, state)
     },
     affordances: async (caseId, actor, asOf) => {
       const { definition, snapshot } = await load(caseId)
@@ -358,13 +371,16 @@ export const createEngine = (options: EngineOptions): Engine => {
         heartbeatMs,
         retry,
       }),
-    journal: (caseId, filter) => readJournal(db, caseId, filter),
+    journal: (caseId, filter) => storage.journal.read(caseId, filter),
     case: async (caseId) => {
-      const { handle, state } = await resolveCase(db, caseTypeFor, caseId)
+      const { handle, state } = await resolveCase(
+        await storage.cases.get(caseId),
+        caseTypeFor,
+      )
       return { ...handle, state }
     },
     correlationOf: (system, externalId) =>
-      lookupCorrelation(db, system, externalId),
+      storage.correlations.lookup(system, externalId),
     inputSchemaFor: (caseTypeName, stepName) =>
       caseTypeFor(caseTypeName).getStep(stepName)?.input ?? null,
     stepMetadataFor: (caseTypeName, stepName) => {
@@ -373,9 +389,10 @@ export const createEngine = (options: EngineOptions): Engine => {
       return { title: step.title, description: step.description }
     },
     ingest: (event) => ingest(environment, event),
-    correlate: (registration) => registerCorrelation(db, registration),
-    correlations: (caseId, scopeKey) => correlationsFor(db, caseId, scopeKey),
-    deadLetters: (filter) => readDeadLetters(db, filter),
+    correlate: (registration) => storage.correlations.register(registration),
+    correlations: (caseId, scopeKey) =>
+      storage.correlations.list(caseId, scopeKey),
+    deadLetters: (filter) => storage.deliveries.deadLetters(filter),
     migrate: (caseTypeName, name, transform, migrationOptions) =>
       migrate(environment, caseTypeName, name, transform, migrationOptions),
   }

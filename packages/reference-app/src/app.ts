@@ -15,18 +15,17 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import type { DatabaseAccess, Engine, Queryable } from '@affordance/core'
-import {
-  bootstrap,
-  CASE_TABLES,
-  CaseNotFoundError,
-  createEngine,
-  FRAMEWORK_SCHEMA,
-  queryableOf,
-  routedStep,
-} from '@affordance/core'
+import type { Engine } from '@affordance/core'
+import { CaseNotFoundError, createEngine, routedStep } from '@affordance/core'
 import type { AffordanceApi } from '@affordance/http'
 import { createAffordanceApi, createHonoApp } from '@affordance/http'
+import type { DatabaseAccess } from '@affordance/pg'
+import {
+  bootstrap,
+  createPgStorage,
+  deleteCase,
+  queryableOf,
+} from '@affordance/pg'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -81,17 +80,6 @@ const isServices = (value: unknown): value is MockServices =>
   value !== null &&
   typeof (value as MockServices).flush === 'function'
 
-/** Row shape of the framework's cases table, as the list query selects it. */
-type DevCaseRow = {
-  id: string
-  case_type: string
-  seq: string | number
-  state: unknown
-  ended_at: Date | null
-  created_at: Date
-  updated_at: Date
-}
-
 /**
  * The demo console: everything the reference UI needs that is deliberately
  * not part of the affordance contract. One `/dev` prefix marks the seam.
@@ -100,10 +88,7 @@ type DevCaseRow = {
  *   `ui:build`). `GET /assets/*` serves the build's hashed assets. Never
  *   auto-builds; `serve` refuses to start without it, and this
  *   route answers 503 with the build command rather than serve nothing.
- * - `GET /dev/cases` — a case list. The store exports no list function and
- *   the `Engine` has no read model (apps own their read models), so this
- *   queries the framework's own table. **A recorded leak**, acceptable only
- *   under `/dev`; it must never migrate into `@affordance/http`.
+ * - `GET /dev/cases` — a paginated list of validated cases through the engine.
  * - `GET /dev/cases/{id}` — one case, via `engine.case`: unconditional
  *   state. A decision, not an accident: `/dev` is the console's operator
  *   surface — it takes no actor and only the demo host mounts it. The
@@ -124,7 +109,7 @@ type DevCaseRow = {
  * No route here takes an actor.
  */
 interface DevConsoleOptions {
-  readonly db: Queryable
+  readonly deleteCase: (caseId: string) => Promise<void>
   readonly engine: Engine
   readonly services: MockServices
   readonly settle: (now?: number) => Promise<void>
@@ -143,7 +128,7 @@ const ASSET_TYPES: Record<string, string> = {
 }
 
 const createDevConsole = ({
-  db,
+  deleteCase,
   engine,
   services,
   settle,
@@ -188,24 +173,13 @@ const createDevConsole = ({
   })
 
   dev.get('/dev/cases', async (c) => {
-    // `state` rides along so the console can label a case by what it is —
-    // the interpretation (an address, for house-purchase) stays in the
-    // UI's leak module; this route stays case-type-blind.
-    const { rows } = await db.query<DevCaseRow>(
-      `select id, case_type, seq, state, ended_at, created_at, updated_at
-       from ${FRAMEWORK_SCHEMA}.cases order by created_at desc`,
+    return c.json(
+      await engine.listCases({
+        includeEnded: true,
+        limit: 100,
+        cursor: c.req.query('cursor'),
+      }),
     )
-    return c.json({
-      cases: rows.map((row) => ({
-        id: row.id,
-        caseTypeName: row.case_type,
-        seq: Number(row.seq),
-        state: row.state,
-        endedAt: row.ended_at,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      })),
-    })
   })
 
   dev.get('/dev/cases/:id', async (c) => {
@@ -219,22 +193,9 @@ const createDevConsole = ({
     }
   })
 
-  // Delete a case outright — journal, claims, correlations, dedup rows and
-  // all. Not contract material and never will be: the contract has no notion
-  // of un-happening a case. This is the dev console hand-deleting rows from
-  // a demo database, which is why it lives here and nowhere else. The table
-  // set is the framework's own (CASE_TABLES) — a private copy went stale
-  // once already, leaving deleted cases' ingested_events behind, and those
-  // leftover dedup rows suppressed future deliveries that quoted the same
-  // identifiers.
+  // Destructive demo administration is supplied by the host's storage adapter.
   dev.delete('/dev/cases/:id', async (c) => {
-    const id = c.req.param('id')
-    for (const { table, caseColumn } of CASE_TABLES) {
-      await db.query(
-        `delete from ${FRAMEWORK_SCHEMA}.${table} where ${caseColumn} = $1`,
-        [id],
-      )
-    }
+    await deleteCase(c.req.param('id'))
     return c.json({ ok: true })
   })
 
@@ -378,7 +339,7 @@ export const createPurchaseApp = async (
 
   const caseTypes = [createPurchaseDefinition(services)]
   const engine = createEngine({
-    db: options.db,
+    storage: createPgStorage({ db: options.db }),
     caseTypes,
     // Ingestion runs as *this app's* actor shape, not as the
     // framework's marker: `permits` conditions here read `roles`.
@@ -410,7 +371,7 @@ export const createPurchaseApp = async (
   // mounting the contract at root leaves every `/api` route untouched.
   const http = new Hono()
   const devConsole = createDevConsole({
-    db: queryableOf(options.db),
+    deleteCase: (id) => deleteCase(options.db, id),
     engine,
     services,
     settle,

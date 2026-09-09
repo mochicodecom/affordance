@@ -152,8 +152,8 @@ const toBlocked = (
  * `ScopeKeyError` (identity corruption — `selectTargets` never absorbs it).
  * A scoped step selecting zero elements contributes nothing to either list.
  */
-export const computeAffordances = <S extends StandardSchemaV1, TActor>(
-  definition: CaseTypeDefinition<S, TActor>,
+export const computeAffordances = <S extends StandardSchemaV1, TActor, TCommit>(
+  definition: CaseTypeDefinition<S, TActor, TCommit>,
   snapshot: CaseSnapshot<StandardSchemaV1.InferOutput<S>>,
   ctx: ComputationContext<TActor>,
 ): CaseAffordances => {
@@ -239,8 +239,8 @@ export const explainContext = <TActor = unknown>(
  * `actor` is whatever the caller supplies; to ask "why can't *this* actor",
  * pass that actor — `permits` conditions are evaluated against it verbatim.
  */
-export const computeExplanation = <S extends StandardSchemaV1, TActor>(
-  definition: CaseTypeDefinition<S, TActor>,
+export const computeExplanation = <S extends StandardSchemaV1, TActor, TCommit>(
+  definition: CaseTypeDefinition<S, TActor, TCommit>,
   snapshot: CaseSnapshot<StandardSchemaV1.InferOutput<S>>,
   stepName: string,
   ctx: ComputationContext<TActor> & { readonly scopeKey?: string },

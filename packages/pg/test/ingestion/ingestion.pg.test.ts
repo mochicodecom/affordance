@@ -1,3 +1,4 @@
+import { createPgStorage } from '../../src/index.js'
 /**
  * Ingestion and correlation against a real database, including the two
  * criteria the issue names: three deliveries of one webhook produce exactly
@@ -8,14 +9,20 @@
 import { randomUUID } from 'node:crypto'
 import { testPool } from '@affordance/testkit'
 import { describe, expect, it } from 'vitest'
-import { createEngine } from '../../src/engine/index.js'
-import { foldExecutions } from '../../src/execution/index.js'
-import { externalActor, idempotencyKeyFor } from '../../src/ingestion/index.js'
-import { FRAMEWORK_SCHEMA } from '../../src/store/index.js'
+import { createEngine } from '../../../core/src/engine/index.js'
+import { foldExecutions } from '../../../core/src/execution/index.js'
+import {
+  externalActor,
+  idempotencyKeyFor,
+} from '../../../core/src/ingestion/index.js'
+import { FRAMEWORK_SCHEMA } from '../../src/index.js'
 import { organizer, type Signing, signing, twoBuyers } from './fixture.js'
 
 const pool = testPool()
-const engine = createEngine({ db: { pool }, caseTypes: [signing] })
+const engine = createEngine({
+  storage: createPgStorage({ db: { pool } }),
+  caseTypes: [signing],
+})
 
 const newCase = () => engine.createCase(signing.name, twoBuyers())
 
@@ -362,7 +369,7 @@ describe('the dead-letter surface', () => {
 describe('actor mapping', () => {
   it('lets the app map an event to its own actor shape', async () => {
     const mapped = createEngine({
-      db: { pool },
+      storage: createPgStorage({ db: { pool } }),
       caseTypes: [signing],
       ingestion: {
         actor: (event) => ({

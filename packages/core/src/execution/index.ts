@@ -52,16 +52,12 @@ export type {
   JournalFilter,
 } from './journal.js'
 export {
-  appendEntry,
   foldExecutions,
   isClaimedEntry,
   projectEntry,
-  readJournal,
 } from './journal.js'
 export type { HeldClaim, LifecyclePort, LifecycleTx } from './port.js'
-export { pgLifecyclePort } from './port.js'
 export type { GuardReplay } from './replay.js'
 export { replayGuard } from './replay.js'
 export type { Timers } from './timers.js'
 export { realTimers } from './timers.js'
-export { withTransaction } from './transaction.js'

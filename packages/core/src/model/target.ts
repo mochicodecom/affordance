@@ -114,8 +114,8 @@ export interface ScopeBinding {
  * A step addressed by name (× scope key, if scoped): the step definition and
  * its scope binding, resolved against a given Case State.
  */
-export interface StepTarget<TState, TActor = unknown> {
-  readonly step: StepDefinition<TState, TActor>
+export interface StepTarget<TState, TActor = unknown, TCommit = unknown> {
+  readonly step: StepDefinition<TState, TActor, TCommit>
   /**
    * The Case State the target was resolved against — the document its guard
    * is evaluated over. Carried on the target so a binding can never be
@@ -127,8 +127,8 @@ export interface StepTarget<TState, TActor = unknown> {
 }
 
 /** The outcome of scope fan-out: the step's targets, or why selection produced none. */
-export interface TargetSelection<TState, TActor = unknown> {
-  readonly targets: readonly StepTarget<TState, TActor>[]
+export interface TargetSelection<TState, TActor = unknown, TCommit = unknown> {
+  readonly targets: readonly StepTarget<TState, TActor, TCommit>[]
   /** The selection failure — a defective selector — or `null` when selection succeeded. */
   readonly failure: { readonly reason: string } | null
 }
@@ -140,9 +140,9 @@ export interface TargetSelection<TState, TActor = unknown> {
  * {@link ScopeKeyError} instead of degrading. A `select` that throws
  * (totality bug) is left to the caller to absorb or report.
  */
-const selectScope = <TState, TActor>(
-  definition: StepDefinition<TState, TActor>,
-  scope: NonNullable<StepDefinition<TState, TActor>['scope']>,
+const selectScope = <TState, TActor, TCommit>(
+  definition: StepDefinition<TState, TActor, TCommit>,
+  scope: NonNullable<StepDefinition<TState, TActor, TCommit>['scope']>,
   state: TState,
 ): readonly ScopeBinding[] => {
   const selected = scope.select(state)
@@ -194,10 +194,10 @@ const selectScope = <TState, TActor>(
  * defective. {@link ScopeKeyError} — identity corruption — propagates: it is
  * never a selection failure, and no caller may absorb it into "no targets".
  */
-export const selectTargets = <TState, TActor>(
-  step: StepDefinition<TState, TActor>,
+export const selectTargets = <TState, TActor, TCommit>(
+  step: StepDefinition<TState, TActor, TCommit>,
   state: TState,
-): TargetSelection<TState, TActor> => {
+): TargetSelection<TState, TActor, TCommit> => {
   if (step.scope === null)
     return { targets: [{ step, state, binding: null }], failure: null }
   try {
@@ -252,8 +252,11 @@ export type TargetAddressFailure =
     }
 
 /** The outcome of addressing a step: the target, or the precise failure. */
-export type TargetAddress<TState, TActor = unknown> =
-  | { readonly target: StepTarget<TState, TActor>; readonly failure: null }
+export type TargetAddress<TState, TActor = unknown, TCommit = unknown> =
+  | {
+      readonly target: StepTarget<TState, TActor, TCommit>
+      readonly failure: null
+    }
   | { readonly target: null; readonly failure: TargetAddressFailure }
 
 /**
@@ -265,12 +268,12 @@ export type TargetAddress<TState, TActor = unknown> =
  * corruption, from {@link selectScope}) still propagates — no filter may
  * absorb it.
  */
-export const addressTarget = <S extends StandardSchemaV1, TActor>(
-  definition: CaseTypeDefinition<S, TActor>,
+export const addressTarget = <S extends StandardSchemaV1, TActor, TCommit>(
+  definition: CaseTypeDefinition<S, TActor, TCommit>,
   state: StandardSchemaV1.InferOutput<S>,
   stepName: string,
   scopeKey?: string,
-): TargetAddress<StandardSchemaV1.InferOutput<S>, TActor> => {
+): TargetAddress<StandardSchemaV1.InferOutput<S>, TActor, TCommit> => {
   const stepDefinition = definition.getStep(stepName)
   if (stepDefinition === undefined) {
     return {
@@ -365,12 +368,12 @@ export const addressTarget = <S extends StandardSchemaV1, TActor>(
  * failing to address throws with its precise message. Addressing a step you
  * cannot name is a caller bug, not a blocked affordance.
  */
-export const resolveTarget = <S extends StandardSchemaV1, TActor>(
-  definition: CaseTypeDefinition<S, TActor>,
+export const resolveTarget = <S extends StandardSchemaV1, TActor, TCommit>(
+  definition: CaseTypeDefinition<S, TActor, TCommit>,
   state: StandardSchemaV1.InferOutput<S>,
   stepName: string,
   scopeKey?: string,
-): StepTarget<StandardSchemaV1.InferOutput<S>, TActor> => {
+): StepTarget<StandardSchemaV1.InferOutput<S>, TActor, TCommit> => {
   const address = addressTarget(definition, state, stepName, scopeKey)
   if (address.failure !== null) throw address.failure.error
   return address.target
@@ -381,8 +384,8 @@ export const resolveTarget = <S extends StandardSchemaV1, TActor>(
  * the single evaluation shared by `explain` and the claim, so the enforcement
  * moment and the explanation of it can never drift apart.
  */
-export const evaluateTarget = <TState, TActor>(
-  target: StepTarget<TState, TActor>,
+export const evaluateTarget = <TState, TActor, TCommit>(
+  target: StepTarget<TState, TActor, TCommit>,
   ctx: ComputationContext<TActor>,
 ): GuardEvaluation =>
   evaluateGuard(target.step.guard, {

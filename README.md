@@ -7,7 +7,7 @@ Updated: 2026-09-06
 Affordance is a TypeScript library for adaptive case management: purchases,
 claims, onboarding, and other matters with several independent concerns and
 changing requirements. It runs inside your application and stores case state
-and execution records in your Postgres database.
+and execution records through a storage adapter, with Postgres supplied by `@affordance/pg`.
 
 ## The problem
 
@@ -70,11 +70,11 @@ code examples, and the execution model.
 ## Install
 
 The public packages ship ESM JavaScript and TypeScript declarations for Node
-22.12+. The engine uses your Postgres connection and accepts Standard Schema
+22.12+. The Postgres adapter uses your connection; core accepts Standard Schema
 validators such as Zod.
 
 ```bash
-npm install @affordance/core pg zod
+npm install @affordance/core @affordance/pg pg zod
 # Optional HTTP API and Hono binding:
 npm install @affordance/http
 # For clients that only need the wire types:
@@ -119,7 +119,8 @@ isolated TypeScript consumer that exercises Postgres and HTTP. See the
 
 | Package | Responsibility |
 | --- | --- |
-| `@affordance/core` | Case types, guards, execution, persistence, journal, ingestion, and migration. |
+| `@affordance/core` | Case types, guards, engine, storage interfaces, journal, ingestion, and migration. |
+| `@affordance/pg` | Postgres persistence, schema management, claims, and atomic commits. |
 | `@affordance/contract` | Dependency-free types for `affordance/v1` clients and adapters. |
 | `@affordance/http` | Optional HTTP adapter and Hono binding. |
 | `@affordance/reference-app` | Group purchase with mock providers and a React console. |

@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage.d.ts",
+      "import": "./dist/storage.js"
     }
   },
   "scripts": {
@@ -18,18 +22,16 @@
   },
   "dependencies": {
     "@affordance/contract": "workspace:*",
-    "@standard-schema/spec": "^1.1.0",
-    "@types/pg": "^8.11.10"
+    "@standard-schema/spec": "^1.1.0"
   },
   "devDependencies": {
     "@affordance/testkit": "workspace:*",
     "@types/node": "^24.0.0",
     "typescript": "^5.7.2",
     "vitest": "^3.2.0",
-    "pg": "^8.13.1",
     "zod": "^4.4.3"
   },
-  "description": "Adaptive case management with guarded steps, async execution, and a Postgres journal.",
+  "description": "Adaptive case management with guarded steps, async execution, and pluggable storage.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
@@ -52,8 +54,7 @@
   "keywords": [
     "affordance",
     "case-management",
-    "typescript",
-    "postgres"
+    "typescript"
   ],
   "publishConfig": {
     "access": "public",

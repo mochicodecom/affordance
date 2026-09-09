@@ -8,7 +8,8 @@
  * ride along inside.
  */
 
-import type { DatabaseAccess, Queryable, Transaction } from '../store/index.js'
+import type { DatabaseAccess, Queryable, Transaction } from './queryable.js'
+import { withClient } from './queryable.js'
 
 /**
  * Run `fn` inside a transaction and hand it the handle to use — a checked-out
@@ -27,7 +28,8 @@ export const withTransaction = async <T>(
   db: DatabaseAccess,
   fn: (tx: Transaction) => Promise<T>,
 ): Promise<T> => {
-  if (!('pool' in db)) return runTransaction(db.client, fn)
+  if (!('pool' in db))
+    return withClient(db.client, () => runTransaction(db.client, fn))
   const client = await db.pool.connect()
   try {
     return await runTransaction(client, fn)

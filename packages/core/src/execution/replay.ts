@@ -58,8 +58,8 @@ export interface GuardReplay {
  * reproduce, and the parameter type says so — narrow a read entry with
  * `isClaimedEntry` first.
  */
-export const replayGuard = (
-  definition: AnyCaseType,
+export const replayGuard = <TCommit>(
+  definition: AnyCaseType<TCommit>,
   entry: ClaimedJournalEntry,
 ): GuardReplay => {
   const identity = {

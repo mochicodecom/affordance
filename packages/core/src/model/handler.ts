@@ -13,13 +13,12 @@
  * model layer ever invokes a handler — `packages/core/src/execution` does.
  */
 
-import type { Queryable } from '../store/index.js'
+import type { CorrelationRegistration } from '../ingestion/correlation.js'
 
 /**
  * A write to run inside the framework's **commit** transaction, registered
- * from a handler via `ctx.onCommit`. It receives the transaction handle
- * the framework is committing Case State on, so app-table writes land
- * atomically with the case row and the journal entry. This is the
+ * from a handler via `ctx.onCommit`. It receives an adapter-defined transaction or repository context. Those writes
+ * commit atomically with Case State and the journal entry. This is the
  * shared-transaction seam — the one point where app writes join the
  * framework's transaction — and it avoids holding a transaction open across
  * the handler's external calls.
@@ -27,7 +26,7 @@ import type { Queryable } from '../store/index.js'
  * A callback that throws aborts the whole commit: nothing is written, the
  * attempt is journaled as failed, and the retry policy applies.
  */
-export type CommitWrite = (tx: Queryable) => Promise<void>
+export type CommitWrite<TCommit = unknown> = (tx: TCommit) => Promise<void>
 
 /**
  * What a handler registers when it hands work to an external system
@@ -55,7 +54,11 @@ export interface CorrelationRequest {
  * external effect must be deduplicated on it. `attempt` /
  * `maxAttempts` let a handler tell a first try from a retry.
  */
-export interface HandlerContext<TActor = unknown, TInput = undefined> {
+export interface HandlerContext<
+  TActor = unknown,
+  TInput = undefined,
+  TCommit = unknown,
+> {
   /** Unique id of this Execution — the handler's idempotency key. */
   readonly executionId: string
   /** The case this Execution runs on. */
@@ -73,12 +76,12 @@ export interface HandlerContext<TActor = unknown, TInput = undefined> {
   readonly maxAttempts: number
 
   /**
-   * Register an app-table write to run inside the framework's commit
+   * Register an application write to run inside the framework's commit
    * transaction, so it commits atomically with the new Case State.
    * Callbacks run in registration order; registrations from a failed attempt
    * are discarded before the next attempt.
    */
-  onCommit(write: CommitWrite): void
+  onCommit(write: CommitWrite<TCommit>): void
 
   /**
    * Register an external identifier against this case (and, on a scoped
@@ -86,9 +89,8 @@ export interface HandlerContext<TActor = unknown, TInput = undefined> {
    * Correlation is one half of integrating an external system; Ingestion —
    * executing the routed event as an ordinary step — is the other.
    *
-   * Written inside the commit transaction, like any `onCommit` write: a case
-   * cannot end up having sent an envelope whose answer it could not route,
-   * because the sending and the mapping are the same commit.
+   * Written atomically with Case State and other commit effects. External
+   * provider calls are outside this atomic operation and must be idempotent.
    */
   correlate(request: CorrelationRequest): void
 
@@ -110,7 +112,8 @@ export interface ScopedHandlerContext<
   TElement,
   TActor = unknown,
   TInput = undefined,
-> extends HandlerContext<TActor, TInput> {
+  TCommit = unknown,
+> extends HandlerContext<TActor, TInput, TCommit> {
   /** The bound scope element the Execution is about (e.g. one buyer). */
   readonly scope: TElement
   /** The element's scope key — half of the affordance's identity. */
@@ -121,9 +124,14 @@ export interface ScopedHandlerContext<
  * An unscoped step's handler: async, receives the current Case State and the
  * execution context, and returns the **next** Case State document.
  */
-export type StepHandler<TState, TActor = unknown, TInput = undefined> = (
+export type StepHandler<
+  TState,
+  TActor = unknown,
+  TInput = undefined,
+  TCommit = unknown,
+> = (
   state: TState,
-  ctx: HandlerContext<TActor, TInput>,
+  ctx: HandlerContext<TActor, TInput, TCommit>,
 ) => Promise<TState>
 
 /** A scoped step's handler: as {@link StepHandler}, with the scope binding on ctx. */
@@ -132,9 +140,10 @@ export type ScopedStepHandler<
   TElement,
   TActor = unknown,
   TInput = undefined,
+  TCommit = unknown,
 > = (
   state: TState,
-  ctx: ScopedHandlerContext<TElement, TActor, TInput>,
+  ctx: ScopedHandlerContext<TElement, TActor, TInput, TCommit>,
 ) => Promise<TState>
 
 /**
@@ -144,9 +153,17 @@ export type ScopedStepHandler<
  * (the model layer guarantees input was validated and, for scoped steps, a
  * scope is bound).
  */
-export type ErasedStepHandler<TState, TActor = unknown> = (
+export type ErasedStepHandler<TState, TActor = unknown, TCommit = unknown> = (
   state: TState,
   ctx:
-    | HandlerContext<TActor, unknown>
-    | ScopedHandlerContext<unknown, TActor, unknown>,
+    | HandlerContext<TActor, unknown, TCommit>
+    | ScopedHandlerContext<unknown, TActor, unknown, TCommit>,
 ) => Promise<TState>
+
+/** Registrations share one ordered queue and are discarded on a failed attempt. */
+export type CommitEffect<TCommit = unknown> =
+  | { readonly kind: 'write'; readonly write: CommitWrite<TCommit> }
+  | {
+      readonly kind: 'correlation'
+      readonly registration: CorrelationRegistration
+    }
