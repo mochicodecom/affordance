@@ -17,16 +17,25 @@
  * rather than dress it up as an answer.
  */
 
-import type { RefusalCode } from '@affordance/contract'
+/** The closed set of deliberate engine refusal codes. */
+export const REFUSAL_CODES = [
+  /** A guard said no. Carries the unmet conditions. */
+  'step-not-available',
+  /** Another Execution holds the case — "not now", not "never". */
+  'case-busy',
+  /** A step's input failed its declared schema. */
+  'invalid-input',
+  /** No such case, or no such case type. */
+  'not-found',
+  /** The caller addressed something that cannot be addressed: unknown step, bad scope key. */
+  'bad-request',
+  /** A handler ran and failed. */
+  'execution-failed',
+  /** A stored Case State no longer satisfies its schema. */
+  'invalid-state',
+] as const
 
-/**
- * What kind of refusal or failure this is. Deliberately small and closed:
- * these are the answers the affordance contract is specified in terms of, so
- * a new code *is* a contract change — and it reads as one, because the set
- * has exactly one declaration, in `@affordance/contract` (`REFUSAL_CODES`),
- * from which this type derives.
- */
-export type AffordanceErrorCode = RefusalCode
+export type AffordanceErrorCode = (typeof REFUSAL_CODES)[number]
 
 /**
  * The base of every error the framework raises deliberately. Subclasses

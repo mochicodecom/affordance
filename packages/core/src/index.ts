@@ -30,7 +30,7 @@ export type {
 export { createEngine, UnknownCaseTypeError } from './engine/index.js'
 export type { AffordanceErrorCode } from './errors.js'
 // ── The error taxonomy: every deliberate refusal, one closed code set ──────
-export { AffordanceError, isAffordanceError } from './errors.js'
+export { AffordanceError, isAffordanceError, REFUSAL_CODES } from './errors.js'
 export type {
   ClaimedEntryInput,
   ClaimedJournalEntry,
@@ -62,6 +62,7 @@ export {
   StepNotAvailableError,
   stepLabel,
 } from './execution/index.js'
+export { JOURNAL_ENTRY_KINDS } from './execution/journal.js'
 export type {
   AnyOfConditionResult,
   Condition,

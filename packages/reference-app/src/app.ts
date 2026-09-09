@@ -4,21 +4,18 @@
  *
  * This is the whole of what an app has to do — bring a database,
  * register the case types, say what ingestion runs as, and
- * mount the adapter. Everything else in this package is domain: state,
+ * mount the local HTTP adapter. The domain modules define state,
  * steps, and the mock providers those steps call.
  *
  * The served app is two layers: the affordance contract under `/api`, and
  * a dev console quarantined under `/dev` (plus the demo page at `/`). The
- * console is *not* contract material and must never migrate into
- * `@affordance/http` — see `createDevConsole` below for why each route is
- * a recorded leak.
+ * console is outside the HTTP contract — see `createDevConsole` below for
+ * why each route is a recorded leak.
  */
 
 import { readFile } from 'node:fs/promises'
 import type { Engine } from '@affordance/core'
 import { CaseNotFoundError, createEngine, routedStep } from '@affordance/core'
-import type { AffordanceApi } from '@affordance/http'
-import { createAffordanceApi, createHonoApp } from '@affordance/http'
 import type { DatabaseAccess } from '@affordance/pg'
 import {
   bootstrap,
@@ -29,6 +26,8 @@ import {
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import type { AffordanceApi } from './http/index.js'
+import { createAffordanceApi, createHonoApp } from './http/index.js'
 import { createPurchaseDefinition } from './purchase.js'
 import type { MockServiceOptions, MockServices } from './services.js'
 import { createMockServices } from './services.js'

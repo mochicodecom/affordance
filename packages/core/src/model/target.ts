@@ -36,7 +36,6 @@
  * *answered*, because the listing published that exact link).
  */
 
-import { SCOPE_FAILURE_CONDITION } from '@affordance/contract'
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import { thrownMessage } from '../errors.js'
 import type {
@@ -52,11 +51,9 @@ import type { StepDefinition } from './step.js'
 /**
  * The synthetic condition name under which a throwing or malformed scope
  * selector is reported. `$`-prefixed so it can never collide with an
- * author's condition names. Declared by `@affordance/contract` — it reaches
- * clients through `blocked[].unmet[].name`, so it is wire vocabulary, and
- * the wire owns it; re-exported here for the engine's own consumers.
+ * author's condition names. This is engine guard vocabulary.
  */
-export { SCOPE_FAILURE_CONDITION }
+export const SCOPE_FAILURE_CONDITION = '$scope'
 
 /**
  * The synthetic `$scope` entry as a condition result — the one spelling of

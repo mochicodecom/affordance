@@ -14,7 +14,6 @@
  * request. Everything below this line treats that value as opaque.
  */
 
-import { JOURNAL_ENTRY_KINDS } from '@affordance/contract'
 import type {
   AffordanceErrorCode,
   DeadLetterFilter,
@@ -26,6 +25,7 @@ import type {
 } from '@affordance/core'
 import {
   AffordanceError,
+  JOURNAL_ENTRY_KINDS,
   StepInputValidationError,
   StepNotAvailableError,
   toEpochMs,

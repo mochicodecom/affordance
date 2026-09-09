@@ -24,13 +24,6 @@
  */
 
 import type {
-  AnyOfConditionPayload,
-  ConditionPayload,
-  GuardEvaluationPayload,
-  SingleConditionPayload,
-  Visibility,
-} from '@affordance/contract'
-import type {
   CaseAffordances,
   ConditionResult,
   GuardEvaluation,
@@ -38,6 +31,13 @@ import type {
   StepNotAvailableError,
 } from '@affordance/core'
 import { stepLabel } from '@affordance/core'
+import type {
+  AnyOfConditionPayload,
+  ConditionPayload,
+  GuardEvaluationPayload,
+  SingleConditionPayload,
+  Visibility,
+} from './payload.js'
 
 /**
  * One condition result, translated field by field into the contract's leaf

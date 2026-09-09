@@ -21,9 +21,6 @@ importers:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
-      '@affordance/contract':
-        specifier: file:../../contract
-        version: file:../../contract
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
@@ -53,9 +50,6 @@ importers:
         version: 8.2.1(@types/node@24.13.3)(jiti@2.7.0)(sugarss@5.0.1(postcss@8.5.26))
 
 packages:
-
-  '@affordance/contract@file:../../contract':
-    resolution: {directory: ../../contract, type: directory}
 
   '@babel/runtime@7.29.7':
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
@@ -567,8 +561,6 @@ packages:
         optional: true
 
 snapshots:
-
-  '@affordance/contract@file:../../contract': {}
 
   '@babel/runtime@7.29.7': {}
 

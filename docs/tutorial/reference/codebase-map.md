@@ -7,7 +7,7 @@ Updated: 2026-09-06
 Start with the [public core API](../../../packages/core/src/index.ts) and the
 [reference app's steps](../../../packages/reference-app/src/steps.ts). The app
 supplies case definitions and a storage adapter; the engine is an embedded
-library. The HTTP adapter is optional.
+library. The private reference app owns its HTTP interface.
 
 | To understand… | Read… |
 | --- | --- |
@@ -23,8 +23,8 @@ library. The HTTP adapter is optional.
 | External event deduplication, correlation, and dead letters | [ingest.ts](../../../packages/core/src/ingestion/ingest.ts) |
 | Public storage interfaces and adapter composition | [storage.ts](../../../packages/core/src/storage.ts), [Postgres adapter](../../../packages/pg/src/storage.ts) |
 | Journaled state migrations | [migrate.ts](../../../packages/core/src/migration/migrate.ts) |
-| HTTP routes, serialization, and visibility | [api.ts](../../../packages/http/src/api.ts), [contract.ts](../../../packages/http/src/contract.ts), [audience.ts](../../../packages/http/src/audience.ts) |
-| Wire-format types for clients | [contract package](../../../packages/contract/src/index.ts) |
+| HTTP routes, serialization, and visibility | [api.ts](../../../packages/reference-app/src/http/api.ts), [contract.ts](../../../packages/reference-app/src/http/contract.ts), [audience.ts](../../../packages/reference-app/src/http/audience.ts) |
+| Wire-format types for clients | [payload.ts](../../../packages/reference-app/src/http/payload.ts) |
 
 For a concrete request, follow `engine.execute` into `executeStep` and
 `runLifecycle`. The lifecycle uses a

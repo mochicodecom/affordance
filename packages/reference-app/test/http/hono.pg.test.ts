@@ -14,8 +14,8 @@ import { createEngine } from '@affordance/core'
 import { testPool } from '@affordance/testkit'
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
-import type { AffordancePayload } from '../src/index.js'
-import { createAffordanceApi, createHonoApp } from '../src/index.js'
+import type { AffordancePayload } from '../../src/http/index.js'
+import { createAffordanceApi, createHonoApp } from '../../src/http/index.js'
 import { buyerA, organizer, purchase, twoBuyers } from './fixture.js'
 
 const pool = testPool()

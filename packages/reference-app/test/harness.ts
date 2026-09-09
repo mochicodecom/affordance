@@ -10,11 +10,6 @@
  */
 
 import type { JournalEntry } from '@affordance/core'
-import type {
-  AffordancePayload,
-  ApiRequest,
-  ExecutionPayload,
-} from '@affordance/http'
 import { TEST_DATABASE_URL } from '@affordance/testkit'
 import pg from 'pg'
 import {
@@ -22,6 +17,11 @@ import {
   type PurchaseApp,
   type PurchaseAppOptions,
 } from '../src/app.js'
+import type {
+  AffordancePayload,
+  ApiRequest,
+  ExecutionPayload,
+} from '../src/http/index.js'
 import { HOUSE_PURCHASE, newPurchase } from '../src/purchase.js'
 import type { Purchase, PurchaseActor } from '../src/state.js'
 import { buyerNamed } from '../src/state.js'

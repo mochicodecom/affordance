@@ -14,7 +14,7 @@ const files = (directory: string): string[] =>
         ? [path]
         : []
   })
-const allowed = new Set(['@affordance/contract', '@standard-schema/spec'])
+const allowed = new Set(['@standard-schema/spec'])
 
 /** Inspect syntax, so comments about adapters cannot hide or trigger violations. */
 const violations = (text: string, file: string): string[] => {
@@ -76,7 +76,7 @@ const violations = (text: string, file: string): string[] => {
 }
 
 describe('core storage separation', () => {
-  it('keeps core imports inside core, standard schemas, the contract and Node builtins', () => {
+  it('keeps core imports inside core, standard schemas and Node builtins', () => {
     const found = files(root).flatMap((file) =>
       violations(readFileSync(file, 'utf8'), file).map(
         (message) => `${file}: ${message}`,
@@ -95,6 +95,8 @@ describe('core storage separation', () => {
   it('detects type, dynamic, transitive-path and SQL leaks', () => {
     for (const text of [
       "import type { Pool } from 'pg'",
+      "import type { AffordancePayload } from '@affordance/contract'",
+      "import type { ApiRequest } from '../../../reference-app/src/http/api.js'",
       "export { createPgStorage } from '@affordance/pg'",
       "const db = await import('pg')",
       "type Pool = import('pg').Pool",

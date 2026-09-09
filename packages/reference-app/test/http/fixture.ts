@@ -8,7 +8,7 @@
 import type { ConditionContext } from '@affordance/core'
 import { actor, caseType, stepsOf } from '@affordance/core'
 import { z } from 'zod'
-import type { EnginePort } from '../src/index.js'
+import type { EnginePort } from '../../src/http/index.js'
 
 export const PurchaseState = z.object({
   purchase: z.object({

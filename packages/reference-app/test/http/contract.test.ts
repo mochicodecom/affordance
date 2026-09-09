@@ -20,14 +20,14 @@ import type {
   JournalEntry,
 } from '@affordance/core'
 import { describe, expect, it } from 'vitest'
-import type { ContractContext } from '../src/contract.js'
+import type { ContractContext } from '../../src/http/contract.js'
 import {
   toAffordancePayload,
   toDeadLettersPayload,
   toExecutionPayload,
   toIngestionPayload,
   toJournalPayload,
-} from '../src/contract.js'
+} from '../../src/http/contract.js'
 
 const context = (visibility: 'permitted' | 'all'): ContractContext => ({
   basePath: '/api',

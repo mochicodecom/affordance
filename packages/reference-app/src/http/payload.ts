@@ -1,27 +1,17 @@
 // Copyright © 2026 Mochicode LLC — mochicode.com
 
-/**
- * @affordance/contract — the wire shapes of `affordance/v1`, whole, and
- * nothing else.
- *
- * This package is deliberately dependency-free: no engine, no Node, no
- * schema library. It exists so the contract has exactly **one declaration**
- * with two kinds of reader:
- *
- * - `@affordance/http` serializes the framework's records *into* these types.
- *   Core records are inputs to that translation, never members of it — a
- *   core rename that would change the wire is a compile error in the
- *   serializer, not a silent `affordance/v1` break.
- * - A client (the reference console's `ui/`, a script, an agent) reads
- *   payloads *against* these types without acquiring a dependency on the
- *   engine. A client that hand-copies them has created a second declaration
- *   of the wire, one that can drift; that is why this package exists.
- *
- * Everything here is a plain JSON shape. The version constant changes only
- * on a breaking change; new optional fields are additive and do not.
- */
+/** HTTP payloads shared by the reference app server and UI. */
+import type {
+  AffordanceErrorCode,
+  DeadLetterReason,
+  IngestionStatus,
+  JournalEntryType,
+} from '@affordance/core'
 
-/** The contract version every payload carries. */
+export type { DeadLetterReason, IngestionStatus } from '@affordance/core'
+export type RefusalCode = AffordanceErrorCode
+export type JournalEntryKind = JournalEntryType
+
 export const CONTRACT = 'affordance/v1'
 
 /**
@@ -76,19 +66,6 @@ export interface AnyOfConditionPayload extends ConditionPayloadBase {
 
 /** One condition result, as every payload carries it. */
 export type ConditionPayload = SingleConditionPayload | AnyOfConditionPayload
-
-/**
- * Condition names the framework itself puts on the wire, alongside the
- * case type's own. They are contract vocabulary — a client that switches on
- * them reads them from here, never from the engine and never as a copied
- * string:
- *
- * - {@link SCOPE_FAILURE_CONDITION} — a scoped step whose selector failed
- *   over this Case State. The blocked entry carries no `scopeKey` (fan-out
- *   itself failed), and its `explain` link answers with the same single
- *   condition.
- */
-export const SCOPE_FAILURE_CONDITION = '$scope'
 
 export interface AffordanceEntry {
   readonly step: string
@@ -198,24 +175,6 @@ export interface JournalErrorPayload {
 }
 
 /**
- * The lifecycle moments a journal entry can record — declared as a runtime
- * list so an adapter can *validate* a caller's `entry` filter against it
- * (a typo answers 400, never a silently empty journal), with the type
- * derived from it. Like {@link REFUSAL_CODES}, this is the set's one
- * declaration; the engine's journal derives from it.
- */
-export const JOURNAL_ENTRY_KINDS = [
-  'claimed',
-  'attempt-failed',
-  'completed',
-  'failed',
-  'expired',
-] as const
-
-/** The lifecycle moment a journal entry records. */
-export type JournalEntryKind = (typeof JOURNAL_ENTRY_KINDS)[number]
-
-/**
  * One journal entry on the wire.
  *
  * Not the framework's stored record verbatim: the journal is a read surface
@@ -260,44 +219,6 @@ export interface JournalPayload {
   readonly contract: typeof CONTRACT
   readonly entries: readonly JournalEntryPayload[]
 }
-
-/** How an ingested event ended up. */
-export type IngestionStatus = 'executed' | 'duplicate' | 'dead-lettered'
-
-/**
- * The closed set of refusal codes — every deliberate no the framework can
- * answer with, by kind. **This is the set's one declaration.** The contract
- * owns it because the codes are what the rejection table and the dead-letter
- * surface are specified in terms of; the engine's error taxonomy derives
- * from this list, and the edges' policy maps (HTTP statuses, redelivery
- * reopens) are `Record`s over it, so a new code will not compile until
- * every policy has decided what to do with it.
- */
-export const REFUSAL_CODES = [
-  /** A guard said no. Carries the unmet conditions. */
-  'step-not-available',
-  /** Another Execution holds the case — "not now", not "never". */
-  'case-busy',
-  /** A step's input failed its declared schema. */
-  'invalid-input',
-  /** No such case, or no such case type. */
-  'not-found',
-  /** The caller addressed something that cannot be addressed: unknown step, bad scope key. */
-  'bad-request',
-  /** A handler ran and failed. */
-  'execution-failed',
-  /** A stored Case State no longer satisfies its schema. */
-  'invalid-state',
-] as const
-
-/** One refusal code — see {@link REFUSAL_CODES}. */
-export type RefusalCode = (typeof REFUSAL_CODES)[number]
-
-/**
- * Why an event was dead-lettered. Two reasons are routing's own; the rest
- * are the refusal code the Execution itself declared.
- */
-export type DeadLetterReason = 'unrouted' | 'no-step' | RefusalCode
 
 /** Where an event routed, when it routed. */
 export interface CorrelationPayload {

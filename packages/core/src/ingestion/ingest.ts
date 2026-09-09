@@ -22,10 +22,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import type {
-  DeadLetterReason as ContractDeadLetterReason,
-  IngestionStatus as ContractIngestionStatus,
-} from '@affordance/contract'
+import type { AffordanceErrorCode } from '../errors.js'
 import { isAffordanceError } from '../errors.js'
 import type {
   ExecutionEnvironment,
@@ -60,10 +57,9 @@ export interface ExternalEvent {
  * How an ingested event ended up: `executed` (the target step ran and
  * committed), `duplicate` (already seen — this delivery changed nothing, by
  * design), or `dead-lettered` (nothing could be done with it, and it is
- * sitting in the dead-letter surface). Wire vocabulary, so the contract
- * declares it and this is the same closed set.
+ * sitting in the dead-letter surface).
  */
-export type IngestionStatus = ContractIngestionStatus
+export type IngestionStatus = 'executed' | 'duplicate' | 'dead-lettered'
 
 /**
  * Why an event was dead-lettered — the operator's first question, answered.
@@ -73,10 +69,9 @@ export type IngestionStatus = ContractIngestionStatus
  * names a step); every other reason **is** the `AffordanceErrorCode`
  * the refused Execution already declared at its raise site. Ingestion does
  * not re-derive the kind of a Refusal — it projects the code the error
- * carries, so a new refusal class can never misroute here. Wire vocabulary,
- * declared once by the contract; this is the same closed set.
+ * carries, so a new refusal class can never misroute here.
  */
-export type DeadLetterReason = ContractDeadLetterReason
+export type DeadLetterReason = 'unrouted' | 'no-step' | AffordanceErrorCode
 
 /**
  * Whether a provider redelivery of the same event deserves another attempt.

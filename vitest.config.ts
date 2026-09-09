@@ -5,7 +5,6 @@ export default defineConfig({
     projects: [
       'packages/core/vitest.unit.config.ts',
       'packages/pg',
-      'packages/http',
       'packages/reference-app',
     ],
   },
