@@ -22,6 +22,7 @@
     "@affordance/pg": "workspace:*"
   },
   "devDependencies": {
+    "@affordance/contract": "workspace:*",
     "@affordance/testkit": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.11.10",

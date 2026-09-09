@@ -147,6 +147,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@affordance/contract':
+        specifier: workspace:*
+        version: link:../contract
       '@affordance/testkit':
         specifier: workspace:*
         version: link:../testkit
