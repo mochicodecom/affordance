@@ -49,8 +49,8 @@ external effects must tolerate retries.
 
 Read the [introduction](https://github.com/mochicodecom/affordance/blob/main/docs/tutorial/README.md)
 and [architecture](https://github.com/mochicodecom/affordance/blob/main/docs/architecture.md).
-The optional [HTTP adapter](https://github.com/mochicodecom/affordance/tree/main/packages/http)
-exposes available steps as links. Licensed under [MIT](./LICENSE).
+The private [reference app](https://github.com/mochicodecom/affordance/tree/main/packages/reference-app)
+shows how a host can expose available steps as HTTP links. Licensed under [MIT](./LICENSE).
 
 `engine.listCases({ caseTypeName, includeEnded, limit, cursor })` returns
 `{ cases, nextCursor }`. It lists registered types, validates stored state just

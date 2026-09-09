@@ -27,7 +27,7 @@ import {
   UnknownStepError,
 } from '@affordance/core'
 import { describe, expect, it } from 'vitest'
-import { createAffordanceApi, type EnginePort } from '../src/index.js'
+import { createAffordanceApi, type EnginePort } from '../../src/http/index.js'
 import { stubEnginePort } from './fixture.js'
 
 const evaluation: GuardEvaluation = {

@@ -2,8 +2,8 @@
  * The affordance JSON contract — the wire format specified in
  * `docs/affordance-contract.md`.
  *
- * The payload *types* live in `@affordance/contract`, dependency-free, so a
- * client can read against them without acquiring the engine. This module is
+ * The payload *types* live in `payload.ts`, with type-only engine imports, so a
+ * client can read against them without bundling the engine. This module is
  * the serializing side of that seam: every byte any route puts on the wire
  * is produced here, by translating the framework's records *into* the
  * contract's own leaf types. Core records are inputs to that translation and
@@ -21,27 +21,6 @@
  * or a recorded guard evaluation routes through it.
  */
 
-import type {
-  AffordanceEntry,
-  AffordancePayload,
-  BlockedEntry,
-  DeadLetterEntry,
-  DeadLettersPayload,
-  ErrorPayload,
-  ExecutionDescriptor,
-  ExecutionPayload,
-  ExplanationPayload,
-  ExternalEventPayload,
-  IngestionPayload,
-  InputDescriptor,
-  JournalEntryPayload,
-  JournalPayload,
-  Link,
-  PatchOpPayload,
-  StateDeltaPayload,
-  Visibility,
-} from '@affordance/contract'
-import { CONTRACT } from '@affordance/contract'
 import type {
   Affordance,
   AffordanceExplanation,
@@ -62,6 +41,27 @@ import {
   visibleConditions,
   visibleJournalEntry,
 } from './audience.js'
+import type {
+  AffordanceEntry,
+  AffordancePayload,
+  BlockedEntry,
+  DeadLetterEntry,
+  DeadLettersPayload,
+  ErrorPayload,
+  ExecutionDescriptor,
+  ExecutionPayload,
+  ExplanationPayload,
+  ExternalEventPayload,
+  IngestionPayload,
+  InputDescriptor,
+  JournalEntryPayload,
+  JournalPayload,
+  Link,
+  PatchOpPayload,
+  StateDeltaPayload,
+  Visibility,
+} from './payload.js'
+import { CONTRACT } from './payload.js'
 
 export type {
   AffordanceEntry,
@@ -83,7 +83,7 @@ export type {
   JournalPayload,
   Link,
   Visibility,
-} from '@affordance/contract'
+} from './payload.js'
 export { CONTRACT }
 
 /** How the host describes a step's input schema on the wire. */

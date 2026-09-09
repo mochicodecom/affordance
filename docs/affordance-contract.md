@@ -3,14 +3,14 @@
 Updated: 2026-09-06
 
 A client needs to discover what it can do on a case without encoding the
-process itself. The optional HTTP adapter returns affordances with input
+process itself. The reference app’s HTTP interface returns affordances with input
 descriptions and links to execute or explain them. Every contract payload
 includes `"contract": "affordance/v1"`.
 
 The authoritative types are in
-[`@affordance/contract`](../packages/contract/src/index.ts). The
-[router](../packages/http/src/api.ts) validates requests; the
-[serializers](../packages/http/src/contract.ts) construct responses. The host
+[the reference app payload module](../packages/reference-app/src/http/payload.ts). The
+[router](../packages/reference-app/src/http/api.ts) validates requests; the
+[serializers](../packages/reference-app/src/http/contract.ts) construct responses. The host
 owns authentication and access to cases, journals, and event endpoints.
 
 ## Routes

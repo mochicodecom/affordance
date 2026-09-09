@@ -17,8 +17,8 @@ import type {
   AffordancePayload,
   ApiRequest,
   ExecutionPayload,
-} from '../src/index.js'
-import { createAffordanceApi } from '../src/index.js'
+} from '../../src/http/index.js'
+import { createAffordanceApi } from '../../src/http/index.js'
 import { buyerA, buyerB, organizer, purchase, twoBuyers } from './fixture.js'
 
 const pool = testPool()

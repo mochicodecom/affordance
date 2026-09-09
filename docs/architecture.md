@@ -41,7 +41,7 @@ driver dependency and exposes validated case reads and paginated listings.
 flowchart LR
   Client["UI, script, or agent"] --> App["Application: identity and routes"]
   subgraph Process["App process"]
-    App --> HTTP["Optional HTTP adapter"]
+    App --> HTTP["Reference app HTTP interface"]
     HTTP --> Engine["Core engine"]
     App --> Engine
     Engine --> Handler["App step handlers"]
@@ -63,7 +63,7 @@ flowchart LR
 | Core `store/` / `storage.ts` | Case records, validation, and public storage interfaces. |
 | `@affordance/pg` | SQL, schema, connection management, and atomic persistence. |
 | `ingestion/` / `migration/` | Turn external events or state transforms into executions. |
-| HTTP adapter / contract | Translate core records into wire types and apply visibility filtering. |
+| Reference app HTTP interface / contract | Translate core records into wire types and apply visibility filtering. |
 
 The execution lifecycle uses the public `LifecyclePort` from
 `@affordance/core/storage`. Adapters serialize each case operation and atomically

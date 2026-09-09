@@ -9,6 +9,12 @@ the engine, Postgres persistence, guards, and HTTP contract are real.
 
 Read the [introduction](../../docs/tutorial/README.md) first for a smaller case.
 
+The HTTP interface lives in [src/http](src/http) and belongs to this private
+app. It translates engine records into payloads shared with the UI in `src/http/payload.ts` and
+binds the routes to Hono. Applications embedding the TypeScript library own
+their transport and authentication. See the [HTTP contract](../../docs/affordance-contract.md)
+for this app's routes, visibility rules, and payloads.
+
 ## Run it
 
 From the repository root, with Node 22.12+, pnpm, and Docker:
@@ -115,6 +121,7 @@ the recorded actor when following the commitment and closing steps.
 | [purchase.ts](src/purchase.ts) | Case type and initial state. |
 | [services.ts](src/services.ts) | Mock providers and queued event delivery. |
 | [app.ts](src/app.ts) | Engine, actor mapping, HTTP adapter, and development routes. |
+| [http/](src/http) | HTTP routing, serialization, visibility, and Hono binding. |
 | [serve.ts](src/serve.ts) | Server startup and static UI requirement. |
 | [ui/](ui/src) | Actor lanes, schema-driven input forms, and inspection panels. |
 

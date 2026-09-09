@@ -2,7 +2,7 @@
 
 Updated: 2026-09-06
 
-Publish `@affordance/contract`, `@affordance/core`, `@affordance/pg`, and `@affordance/http` together
+Publish `@affordance/core` and `@affordance/pg` together
 at the same version, starting with `0.1.0`. The root, reference app, UI, and
 testkit remain private. Packages contain compiled ESM, TypeScript declarations,
 source maps with embedded source, a README, and the MIT license.
@@ -21,8 +21,8 @@ The check runs lint, typechecking, the reference UI build, and the full test
 suite. It then builds and packs the public packages using pnpm, which replaces
 `workspace:*` dependencies with their release versions. A consumer outside the
 workspace installs those exact tarballs, checks their public types with
-`skipLibCheck: false`, and exercises a scoped step through Postgres and HTTP.
-It also verifies guard refusals and journal records.
+`skipLibCheck: false`, and exercises a scoped step through the TypeScript engine
+with Postgres. It also verifies guard refusals and journal records.
 
 Tarballs, SHA-512 checksums, and the successful smoke-test receipt are written
 to ignored `dist/npm/`. `pnpm release:pack` replaces that directory and
@@ -50,7 +50,7 @@ pnpm release:publish
 ```
 
 Complete npm's authentication or two-factor prompt in your terminal. This
-uploads the tested tarballs in dependency order: contract, core, Postgres, then HTTP,
+uploads the tested tarballs in dependency order: core, then Postgres,
 with public access and the `latest` tag. It never rebuilds during publication.
 If an upload fails, rerun with the same artifacts: already-published versions
 are skipped only when their registry checksum matches.
@@ -58,7 +58,7 @@ are skipped only when their registry checksum matches.
 ## Enable releases from GitHub
 
 After creating the packages, configure a trusted publisher in **Settings →
-Trusted publishing** for each of the four packages on npm:
+Trusted publishing** for each of the two packages on npm:
 
 | Field | Value |
 | --- | --- |
@@ -75,10 +75,8 @@ short-lived publishing credentials from GitHub; no `NPM_TOKEN` secret is needed.
 With npm 11.19+, the same package setup is available from the CLI:
 
 ```bash
-npm trust github @affordance/contract --file release.yml --repo mochicodecom/affordance --env npm --allow-publish
 npm trust github @affordance/core --file release.yml --repo mochicodecom/affordance --env npm --allow-publish
 npm trust github @affordance/pg --file release.yml --repo mochicodecom/affordance --env npm --allow-publish
-npm trust github @affordance/http --file release.yml --repo mochicodecom/affordance --env npm --allow-publish
 ```
 
 For a public repository and public packages, npm generates provenance during
@@ -86,7 +84,7 @@ trusted publishing. See [npm's trusted publishing documentation](https://docs.np
 
 ## Subsequent releases
 
-1. Set the same new version in the three public `package.json` files. Update
+1. Set the same new version in the two public `package.json` files. Update
    their READMEs if the public API changed.
 2. Run `pnpm install`, then `pnpm release:check`. Commit and push the changes.
 3. Tag that commit with its version and push the tag, for example:
@@ -96,6 +94,6 @@ trusted publishing. See [npm's trusted publishing documentation](https://docs.np
    git push origin v0.1.1
    ```
 
-The release workflow checks that the tag matches all three versions, repeats
+The release workflow checks that the tag matches all two versions, repeats
 the release checks, and uploads the tested tarballs. A normal branch push runs
 the same checks without publishing. Never reuse a version for changed contents.

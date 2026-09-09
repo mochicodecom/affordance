@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import {
-  type AffordancePayload,
-  CONTRACT,
-  type ExecutionPayload,
-} from '@affordance/contract'
-import { actor, caseType, createEngine, stepsOf } from '@affordance/core'
-import { createAffordanceApi, createHonoApp } from '@affordance/http'
+  actor,
+  caseType,
+  createEngine,
+  StepInputValidationError,
+  StepNotAvailableError,
+  stepsOf,
+} from '@affordance/core'
 import { bootstrap, createPgStorage } from '@affordance/pg'
 import { Pool } from 'pg'
 import { z } from 'zod'
@@ -54,45 +55,31 @@ try {
     storage: createPgStorage({ db: { pool } }),
     caseTypes: [definition],
   })
-  const app = createHonoApp({
-    api: createAffordanceApi({ engine }),
-    resolveActor: () => ({ id: 'owner' }),
+  const created = await engine.createCase(definition.name, {
+    items: [{ id: 'owner', done: false, amount: 0 }],
   })
-  const created = await app.request('/cases', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      caseType: definition.name,
-      state: { items: [{ id: 'owner', done: false, amount: 0 }] },
-    }),
-  })
-  assert.equal(created.status, 201)
-  const payload = (await created.json()) as AffordancePayload
-  assert.equal(payload.contract, CONTRACT)
-  const available = payload.affordances[0]
+  const current = await engine.affordances(created.id, { id: 'owner' })
+  const available = current.affordances[0]
   assert(available)
   assert.equal(available.step, 'finish')
   assert.equal(available.scopeKey, 'owner')
-  const request = (amount: number) =>
-    app.request(available.links.execute.href, {
-      method: available.links.execute.method,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ scopeKey: available.scopeKey, input: { amount } }),
+  const execute = (amount: number) =>
+    engine.execute(created.id, available.step, {
+      actor: { id: 'owner' },
+      scopeKey: available.scopeKey,
+      input: { amount },
     })
-  assert.equal((await request(-1)).status, 422)
-  const executed = await request(10)
-  assert.equal(executed.status, 201)
-  const result = (await executed.json()) as ExecutionPayload
-  assert.equal(result.contract, CONTRACT)
-  assert(result.execution.delta.length > 0)
-  assert.equal((await request(10)).status, 409)
-  const journal = await engine.journal(payload.case.id)
+  await assert.rejects(execute(-1), StepInputValidationError)
+  const result = await execute(10)
+  assert(result.delta.length > 0)
+  await assert.rejects(execute(10), StepNotAvailableError)
+  const journal = await engine.journal(created.id)
   assert.deepEqual(
     journal.map((entry) => entry.entry),
     ['claimed', 'completed'],
   )
   assert(journal[0]?.guard?.available)
-  const after = await engine.affordances(payload.case.id, { id: 'owner' })
+  const after = await engine.affordances(created.id, { id: 'owner' })
   assert.equal(after.affordances.length, 0)
 } finally {
   await pool.end()

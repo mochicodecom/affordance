@@ -3,10 +3,9 @@
  * request carries the persona as two client-set headers; /dev routes take
  * no actor.
  *
- * The contract's wire shapes are imported from `@affordance/contract` — the
- * one declaration of the wire, dependency-free, so this project stays
- * standalone in the sense that matters (no engine, no Node) without
- * hand-copying types that then drift. Only the `/dev` console routes'
+ * The contract's wire shapes are imported from `src/http/payload.ts` — the
+ * shared declaration of the wire. Type-only imports keep engine and Node
+ * code out of the browser bundle without hand-copying types that drift. Only the `/dev` console routes'
  * shapes are declared here, because only this console and its host speak
  * them.
  */
@@ -16,7 +15,7 @@ import type {
   AffordancePayload,
   JournalEntryPayload,
   RefusalCode,
-} from '@affordance/contract'
+} from '../../../src/http/payload.js'
 
 import { ACTOR_HEADERS } from './actor-headers.js'
 
@@ -26,7 +25,7 @@ export type {
   BlockedEntry,
   ConditionPayload as UnmetCondition,
   JournalEntryPayload as JournalEntry,
-} from '@affordance/contract'
+} from '../../../src/http/payload.js'
 
 export type Persona = { id: string; roles: string }
 

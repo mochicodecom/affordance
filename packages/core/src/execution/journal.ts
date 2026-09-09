@@ -13,7 +13,6 @@
  * append and read the records; the engine never rewrites historical entries.
  */
 
-import type { JournalEntryKind } from '@affordance/contract'
 import type { GuardEvaluation } from '../guards/index.js'
 import type { StateDelta } from './delta.js'
 
@@ -28,7 +27,15 @@ import type { StateDelta } from './delta.js'
  * - `expired` — the claim lapsed without a terminal entry: the handler's
  *   process died, and a later claimant recorded the abandonment
  */
-export type JournalEntryType = JournalEntryKind
+export const JOURNAL_ENTRY_KINDS = [
+  'claimed',
+  'attempt-failed',
+  'completed',
+  'failed',
+  'expired',
+] as const
+
+export type JournalEntryType = (typeof JOURNAL_ENTRY_KINDS)[number]
 
 /** A failure as journaled — the error's identity, not a live Error object. */
 export interface JournalError {

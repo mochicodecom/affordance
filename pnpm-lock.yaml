@@ -21,17 +21,8 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.13.3)(tsx@4.23.6)
 
-  packages/contract:
-    devDependencies:
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-
   packages/core:
     dependencies:
-      '@affordance/contract':
-        specifier: workspace:*
-        version: link:../contract
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -42,46 +33,6 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.0
-        version: 3.2.7(@types/node@24.13.3)(tsx@4.23.6)
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-
-  packages/http:
-    dependencies:
-      '@affordance/contract':
-        specifier: workspace:*
-        version: link:../contract
-      '@affordance/core':
-        specifier: workspace:*
-        version: link:../core
-      '@standard-schema/spec':
-        specifier: ^1.1.0
-        version: 1.1.0
-      hono:
-        specifier: ^4.13.0
-        version: 4.13.0
-    devDependencies:
-      '@affordance/pg':
-        specifier: workspace:*
-        version: link:../pg
-      '@affordance/testkit':
-        specifier: workspace:*
-        version: link:../testkit
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      '@types/pg':
-        specifier: ^8.11.10
-        version: 8.20.4
-      pg:
-        specifier: ^8.13.1
-        version: 8.22.0
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -128,15 +79,15 @@ importers:
       '@affordance/core':
         specifier: workspace:*
         version: link:../core
-      '@affordance/http':
-        specifier: workspace:*
-        version: link:../http
       '@affordance/pg':
         specifier: workspace:*
         version: link:../pg
       '@hono/node-server':
         specifier: ^2.1.0
         version: 2.1.0(hono@4.13.0)
+      '@standard-schema/spec':
+        specifier: ^1.1.0
+        version: 1.1.0
       hono:
         specifier: ^4.13.0
         version: 4.13.0
@@ -147,9 +98,6 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@affordance/contract':
-        specifier: workspace:*
-        version: link:../contract
       '@affordance/testkit':
         specifier: workspace:*
         version: link:../testkit

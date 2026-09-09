@@ -12,7 +12,7 @@
 
 import type { CaseAffordances } from '@affordance/core'
 import { describe, expect, it } from 'vitest'
-import { createAffordanceApi } from '../src/index.js'
+import { createAffordanceApi } from '../../src/http/index.js'
 import { stubEnginePort } from './fixture.js'
 
 const record: CaseAffordances = {

@@ -136,7 +136,7 @@ try {
   run(process.execPath, ['dist/consumer.js'], consumer)
   writeFileSync(receipt, `${JSON.stringify(artifacts, null, 2)}\n`)
   console.log(
-    'Tarball contents, consumer types, and Postgres/HTTP execution passed.',
+    'Tarball contents, consumer types, and TypeScript engine execution with Postgres passed.',
   )
 } finally {
   rmSync(consumer, { recursive: true, force: true })

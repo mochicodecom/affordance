@@ -61,8 +61,6 @@ const entries = await engine.journal(caseId, { scopeKey: 'buyer-7' })
   claims are not journal entries.
 - **Changing definitions:** deployed steps apply to existing cases when their
   state remains compatible. State restructuring has a journaled migration API.
-- **Optional HTTP:** the adapter adds execute links, input descriptions, and
-  explanations so a UI, script, or agent can discover available work.
 
 Start with the [introduction](docs/tutorial/README.md) for a complete case type,
 code examples, and the execution model.
@@ -75,10 +73,6 @@ validators such as Zod.
 
 ```bash
 npm install @affordance/core @affordance/pg pg zod
-# Optional HTTP API and Hono binding:
-npm install @affordance/http
-# For clients that only need the wire types:
-npm install @affordance/contract
 ```
 
 See the [core package example](packages/core/README.md) for database and engine
@@ -111,8 +105,8 @@ The test suite includes Postgres tests. Biome checks formatting and linting;
 pre-commit hook to check staged files. Run `pnpm build` after changing a library
 while using the reference app. Root test and typecheck commands rebuild first.
 
-Run `pnpm release:check` to also pack all three libraries and install them in an
-isolated TypeScript consumer that exercises Postgres and HTTP. See the
+Run `pnpm release:check` to also pack both libraries and install them in an
+isolated TypeScript consumer that exercises the engine with Postgres. See the
 [release guide](docs/releasing.md) for publishing and trusted publisher setup.
 
 ## Packages and docs
@@ -121,9 +115,7 @@ isolated TypeScript consumer that exercises Postgres and HTTP. See the
 | --- | --- |
 | `@affordance/core` | Case types, guards, engine, storage interfaces, journal, ingestion, and migration. |
 | `@affordance/pg` | Postgres persistence, schema management, claims, and atomic commits. |
-| `@affordance/contract` | Dependency-free types for `affordance/v1` clients and adapters. |
-| `@affordance/http` | Optional HTTP adapter and Hono binding. |
-| `@affordance/reference-app` | Group purchase with mock providers and a React console. |
+| `@affordance/reference-app` | Group purchase with an app-owned HTTP interface, mock providers, and a React console. |
 | `@affordance/testkit` | Shared Postgres test setup. |
 
 | Read… | For… |

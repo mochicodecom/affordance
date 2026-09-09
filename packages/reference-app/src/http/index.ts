@@ -1,7 +1,7 @@
 // Copyright © 2026 Mochicode LLC — mochicode.com
 
 /**
- * @affordance/http — the thin, optional HTTP adapter.
+ * The reference app's HTTP interface.
  *
  * Two things live here, and the first matters more than the second:
  *
@@ -19,6 +19,23 @@
  * in. Nothing here has a user model, a role table, or a login route.
  */
 
+// The local HTTP module exports: the two constructors, the port they meet
+// the engine at, and the wire types a client reads payloads against. The
+// wire types are `payload.ts`'s — re-exported, not declared, so
+// there is exactly one declaration of the wire. The serializers and the link
+// builder are the contract's implementation — they stay internal, so the
+// payload types are the only way to depend on them.
+export type {
+  AffordanceApi,
+  ApiOptions,
+  ApiRequest,
+  ApiResponse,
+  EnginePort,
+} from './api.js'
+export { createAffordanceApi } from './api.js'
+export type { DescribeInput } from './contract.js'
+export type { HonoBindingOptions } from './hono.js'
+export { createHonoApp } from './hono.js'
 export type {
   AffordanceEntry,
   AffordancePayload,
@@ -39,22 +56,5 @@ export type {
   JournalPayload,
   Link,
   Visibility,
-} from '@affordance/contract'
-export { CONTRACT } from '@affordance/contract'
-// The package's whole public surface: the two constructors, the port they meet
-// the engine at, and the wire types a client reads payloads against. The
-// wire types are `@affordance/contract`'s — re-exported, not declared, so
-// there is exactly one declaration of the wire. The serializers and the link
-// builder are the contract's implementation — they stay internal, so the
-// payload types are the only way to depend on them.
-export type {
-  AffordanceApi,
-  ApiOptions,
-  ApiRequest,
-  ApiResponse,
-  EnginePort,
-} from './api.js'
-export { createAffordanceApi } from './api.js'
-export type { DescribeInput } from './contract.js'
-export type { HonoBindingOptions } from './hono.js'
-export { createHonoApp } from './hono.js'
+} from './payload.js'
+export { CONTRACT } from './payload.js'
