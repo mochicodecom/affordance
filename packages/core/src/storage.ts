@@ -1,4 +1,11 @@
-/** Public interface for storage adapters. Every member belongs to one coordinated store. */
+/**
+ * Public interface for storage adapters. Every member belongs to one coordinated store.
+ * Methods exchange runtime values. Adapters encode complete case state and journal
+ * actor/input/claimed state with serializeValue, and decode with deserializeValue
+ * on every read, including transactional loads, listings and migration candidates.
+ * Core validates decoded state against the case type's schema. Deltas are already
+ * JSON-safe evidence and are stored verbatim, separately from complete state.
+ */
 import type { JournalEntry, JournalFilter } from './execution/journal.js'
 import type { LifecyclePort } from './execution/port.js'
 import type {
@@ -116,6 +123,12 @@ export interface EngineStorage<TCommit = unknown> {
 export { projectEntry } from './execution/journal.js'
 export type { HeldClaim, LifecyclePort, LifecycleTx } from './execution/port.js'
 export type { CommitEffect } from './model/handler.js'
+export type { SerializedValue } from './serialization.js'
+export {
+  deserializeValue,
+  SerializationError,
+  serializeValue,
+} from './serialization.js'
 export { mintId } from './store/ids.js'
 export type { StoredCase } from './store/store.js'
 export { validateAgainstSchema } from './store/store.js'

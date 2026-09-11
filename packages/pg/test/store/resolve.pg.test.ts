@@ -1,3 +1,4 @@
+import { serializeValue } from '@affordance/core/storage'
 import { selectCaseForUpdate, selectCaseUntyped } from '../../src/store.js'
 /**
  * Case resolution: the one place a case row becomes a Case Type definition
@@ -91,7 +92,7 @@ describe('resolveCase', () => {
     const caseId = await createCase()
     await pool.query(
       `update affordance.cases set state = $2::jsonb where id = $1`,
-      [caseId, JSON.stringify({ address: 42 })],
+      [caseId, JSON.stringify(serializeValue({ address: 42 }))],
     )
     await expect(readResolved(caseId, registry())).rejects.toThrow(
       CaseStateValidationError,

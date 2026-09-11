@@ -6,8 +6,10 @@
  * an audit artifact read by people and machines that are not this library, so
  * it should not need a bespoke decoder. Paths are RFC 6901 JSON Pointers.
  *
- * Pure and total over JSON values — no clock, no I/O, no schema knowledge.
+ * Comparison runs over serialized values, including their type metadata.
  */
+
+import { serializeForDiff } from '../serialization.js'
 
 /** One JSON Patch operation. */
 export type PatchOp =
@@ -15,7 +17,7 @@ export type PatchOp =
   | { readonly op: 'remove'; readonly path: string }
   | { readonly op: 'replace'; readonly path: string; readonly value: unknown }
 
-/** An Execution's state delta: the ops taking the previous Case State to the next. */
+/** Journal evidence comparing serialized state documents; never used to load state. */
 export type StateDelta = readonly PatchOp[]
 
 /** RFC 6901 escaping: `~` → `~0`, `/` → `~1`. */
@@ -99,6 +101,11 @@ const diffInto = (
 }
 
 /**
+ * Compare serialized Case State documents, including type metadata. Value paths
+ * start at `/json`; type changes may also change `/meta`. Sets are compared by
+ * structural membership, ignoring insertion order; snapshots retain that order.
+ * The returned operations are journal evidence, never a state loading mechanism.
+ *
  * The delta from one Case State document to the next. An Execution that
  * changed nothing yields an empty delta — a real and unremarkable outcome
  * (a handler whose only effect was external, or a no-op retry landing).
@@ -110,6 +117,6 @@ const diffInto = (
  */
 export const diffState = (previous: unknown, next: unknown): StateDelta => {
   const ops: PatchOp[] = []
-  diffInto(ops, '', previous, next)
+  diffInto(ops, '', serializeForDiff(previous), serializeForDiff(next))
   return ops
 }

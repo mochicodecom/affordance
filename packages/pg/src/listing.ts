@@ -1,4 +1,5 @@
 import type { CaseRepository } from '@affordance/core/storage'
+import { deserializeValue } from '@affordance/core/storage'
 import { FRAMEWORK_SCHEMA } from './bootstrap.js'
 import type { Queryable } from './queryable.js'
 import { type CaseRow, toHandle } from './store.js'
@@ -47,7 +48,7 @@ export const listCases = async (
   const selected = rows.slice(0, options.limit)
   const last = selected.at(-1)
   return {
-    cases: selected.map((row) => toHandle(row, row.state)),
+    cases: selected.map((row) => toHandle(row, deserializeValue(row.state))),
     nextCursor:
       rows.length > options.limit && last !== undefined
         ? Buffer.from(

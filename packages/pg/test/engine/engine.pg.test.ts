@@ -155,7 +155,7 @@ describe('engine round-trip through Postgres', () => {
       readyState(),
     )
     await pool.query(
-      `update ${FRAMEWORK_SCHEMA}.cases set state = '{"drifted": true}'::jsonb where id = $1`,
+      `update ${FRAMEWORK_SCHEMA}.cases set state = '{"version":1,"json":{"drifted":true}}'::jsonb where id = $1`,
       [created.id],
     )
     await expect(

@@ -131,7 +131,7 @@ availability and that execution's journal entries:
     "scopeKey": "alice",
     "attempts": 1,
     "seq": 1,
-    "delta": [{ "op": "replace", "path": "/buyers/0/committedAmount", "value": 100000 }],
+    "delta": [{ "op": "replace", "path": "/json/buyers/0/committedAmount", "value": 100000 }],
     "dormancy": null,
     "endedAt": null,
     "claimedAt": "2026-09-06T19:00:01.001Z",

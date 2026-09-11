@@ -48,6 +48,7 @@ import {
   resolveTarget,
   validateStepInput,
 } from '../model/index.js'
+import { SerializationError } from '../serialization.js'
 import type { EngineStorage } from '../storage.js'
 import type { Dormancy } from '../store/index.js'
 import { mintId, resolveCase, validateCaseState } from '../store/index.js'
@@ -484,7 +485,9 @@ export const runLifecycle = async <TCommit>(
         )
       } catch (error) {
         const fatal =
-          error instanceof NonRetryable || error instanceof ClaimLostError
+          error instanceof NonRetryable ||
+          error instanceof ClaimLostError ||
+          error instanceof SerializationError
         const cause = error instanceof NonRetryable ? error.reason : error
         const journalError = toJournalError(cause)
 

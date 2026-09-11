@@ -1,5 +1,6 @@
 import type { MigrationOptions } from '@affordance/core'
 import type { MigrationPage } from '@affordance/core/storage'
+import { deserializeValue } from '@affordance/core/storage'
 import { FRAMEWORK_SCHEMA } from './bootstrap.js'
 import type { Queryable } from './queryable.js'
 import { sqlWhere } from './sql.js'
@@ -41,7 +42,7 @@ export const findCandidates = async (
     values,
   )
   return {
-    cases: rows,
+    cases: rows.map((row) => ({ ...row, state: deserializeValue(row.state) })),
     nextCursor: rows.length === batchSize ? (rows.at(-1)?.id ?? null) : null,
   }
 }

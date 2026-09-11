@@ -7,7 +7,12 @@ import type {
   JournalFilter,
   StateDelta,
 } from '@affordance/core'
-import { mintId, projectEntry } from '@affordance/core/storage'
+import {
+  deserializeValue,
+  mintId,
+  projectEntry,
+  serializeValue,
+} from '@affordance/core/storage'
 import { FRAMEWORK_SCHEMA } from './bootstrap.js'
 import type { Queryable } from './queryable.js'
 import { sqlWhere } from './sql.js'
@@ -45,32 +50,16 @@ const toEntry = (row: JournalRow): JournalEntry => ({
   attempt: row.attempt,
   step: row.step,
   scopeKey: row.scope_key,
-  actor: row.actor,
-  input: row.input,
+  actor: deserializeValue(row.actor),
+  input: deserializeValue(row.input),
   asOf: row.as_of === null ? null : row.as_of.toISOString(),
   guard: row.guard,
-  state: row.state,
+  state: row.entry === 'claimed' ? deserializeValue(row.state) : null,
   delta: row.delta,
   dormancy: row.dormancy as 'ended' | 'reopened' | null,
   error: row.error,
   recordedAt: row.recorded_at.toISOString(),
 })
-
-/**
- * Serialize a value for a jsonb column. Actors and inputs are app-owned
- * shapes, and a journal append must never be the thing that fails an
- * otherwise-good Execution: a value that will not stringify (a cycle, a
- * BigInt) is journaled as a marker string rather than thrown over.
- */
-const toJsonb = (value: unknown): string | null => {
-  if (value === undefined || value === null) return null
-  try {
-    const json = JSON.stringify(value)
-    return json === undefined ? null : json
-  } catch {
-    return JSON.stringify({ '~unserializable': String(value) })
-  }
-}
 
 /** Append one entry. Inserts only — journal rows are never updated or deleted. */
 export const appendEntry = async (
@@ -91,14 +80,16 @@ export const appendEntry = async (
       entry.attempt,
       entry.step,
       entry.scopeKey,
-      toJsonb(entry.actor),
-      toJsonb(entry.input),
+      JSON.stringify(serializeValue(entry.actor)),
+      JSON.stringify(serializeValue(entry.input)),
       entry.asOf,
-      toJsonb(entry.guard),
-      toJsonb(entry.state),
-      toJsonb(entry.delta),
+      JSON.stringify(entry.guard),
+      entry.entry === 'claimed'
+        ? JSON.stringify(serializeValue(entry.state))
+        : null,
+      JSON.stringify(entry.delta),
       entry.dormancy,
-      toJsonb(entry.error),
+      JSON.stringify(entry.error),
     ],
   )
   const row = rows[0]

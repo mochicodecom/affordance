@@ -178,7 +178,7 @@ describe('audit reconstruction', () => {
     expect(claims.length).toBeGreaterThan(0)
 
     for (const entry of claims.filter(isClaimedEntry)) {
-      const replay = replayGuard(purchaseExecution, entry)
+      const replay = await replayGuard(purchaseExecution, entry)
       expect(replay.matches).toBe(true)
       expect(replay.reproduced).toEqual(replay.recorded)
       expect(replay.asOf).toBe(entry.asOf)
@@ -198,8 +198,8 @@ describe('audit reconstruction', () => {
     ).filter(isClaimedEntry)
     expect((buyerA!.state as Purchase).buyers[0]?.reSignRequests).toBe(0)
     expect((buyerB!.state as Purchase).buyers[0]?.reSignRequests).toBe(1)
-    expect(replayGuard(purchaseExecution, buyerA!).matches).toBe(true)
-    expect(replayGuard(purchaseExecution, buyerB!).matches).toBe(true)
+    expect((await replayGuard(purchaseExecution, buyerA!)).matches).toBe(true)
+    expect((await replayGuard(purchaseExecution, buyerB!)).matches).toBe(true)
   })
 
   it('surfaces definition drift instead of hiding it', async () => {
@@ -228,7 +228,7 @@ describe('audit reconstruction', () => {
     const [claimed] = (
       await engine.journal(caseId, { step: 'close-purchase', entry: 'claimed' })
     ).filter(isClaimedEntry)
-    const replay = replayGuard(tightened, claimed!)
+    const replay = await replayGuard(tightened, claimed!)
     expect(replay.recorded.available).toBe(true)
     expect(replay.reproduced?.available).toBe(false)
     expect(replay.matches).toBe(false)
@@ -260,7 +260,9 @@ describe('audit reconstruction', () => {
     )
     expect(claims.length).toBeGreaterThan(0)
 
-    const replays = claims.map((entry) => replayGuard(withoutStep, entry))
+    const replays = await Promise.all(
+      claims.map((entry) => replayGuard(withoutStep, entry)),
+    )
     for (const replay of replays) {
       expect(replay.reproduced).toBeNull()
       expect(replay.matches).toBe(false)
@@ -295,7 +297,7 @@ describe('audit reconstruction', () => {
     expect(claims.length).toBeGreaterThan(0)
 
     for (const entry of claims) {
-      const replay = replayGuard(tightenedScope, entry)
+      const replay = await replayGuard(tightenedScope, entry)
       expect(replay.reproduced).toBeNull()
       expect(replay.matches).toBe(false)
       expect(replay.unaddressable?.reason).toMatch(

@@ -1,3 +1,4 @@
+import { deserializeValue } from '@affordance/core/storage'
 import { createPgStorage } from '../../src/index.js'
 /**
  * The migration escape hatch against a real database.
@@ -93,11 +94,11 @@ const seed = async (count: number) =>
   )
 
 const stateOf = async (caseId: string): Promise<Ledger> => {
-  const { rows } = await pool.query<{ state: Ledger }>(
+  const { rows } = await pool.query<{ state: unknown }>(
     `select state from ${FRAMEWORK_SCHEMA}.cases where id = $1`,
     [caseId],
   )
-  return rows[0]!.state
+  return deserializeValue(rows[0]!.state) as Ledger
 }
 
 describe('migrate', () => {
@@ -129,9 +130,9 @@ describe('migrate', () => {
         status: 'completed',
         actor: { kind: 'migration', migration: MIGRATION },
       })
-      expect(executions[0]?.delta?.some((op) => op.path === '/buyers/-')).toBe(
-        true,
-      )
+      expect(
+        executions[0]?.delta?.some((op) => op.path === '/json/buyers/-'),
+      ).toBe(true)
       expect(
         await hasMigrated(
           createPgStorage({ db: { pool } }),
@@ -164,10 +165,10 @@ describe('migrate', () => {
     // …and the `completed` entry stores exactly what changed.
     // Appends are `/-` per RFC 6902, the journal's delta format.
     expect(completed?.delta).toEqual([
-      { op: 'replace', path: '/buyer', value: null },
+      { op: 'replace', path: '/json/buyer', value: null },
       {
         op: 'add',
-        path: '/buyers/-',
+        path: '/json/buyers/-',
         value: { id: 'buyer_0', committed: 1_000 },
       },
     ])

@@ -81,8 +81,8 @@ describe('claim → run → commit', () => {
     expect(result.guard.available).toBe(true)
     expect((result.state as Purchase).split.confirmed).toBe(true)
     expect(result.delta).toEqual([
-      { op: 'replace', path: '/split/confirmed', value: true },
-      { op: 'add', path: '/notes/-', value: 'split confirmed by ops-1' },
+      { op: 'add', path: '/json/notes/-', value: 'split confirmed by ops-1' },
+      { op: 'replace', path: '/json/split/confirmed', value: true },
     ])
 
     // the materialized case row is the committed state

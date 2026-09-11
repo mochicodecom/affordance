@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  actor,
   CaseBusyError,
   CaseStateValidationError,
   ClaimLostError,
@@ -10,6 +11,10 @@ import {
   commitContext,
   createEngine,
   hasMigrated,
+  isClaimedEntry,
+  replayGuard,
+  SerializationError,
+  StepExecutionError,
   stepsOf,
 } from '../../src/index.js'
 import type { EngineStorage } from '../../src/storage.js'
@@ -48,6 +53,215 @@ export const storageContract = (
   factory: () => AdapterFixture | Promise<AdapterFixture>,
 ) => {
   describe(`${name} storage contract`, () => {
+    it('stores complete typed state, claim snapshots, actor and input independently of deltas', async () => {
+      const f = await factory()
+      const Details = z.object({
+        when: z.date(),
+        members: z.set(z.string()),
+        amount: z.bigint(),
+      })
+      const TypedState = z
+        .object({
+          details: Details,
+          nullable: z.null(),
+          unset: z.undefined().optional(),
+        })
+        .refine(async (s) => s.details.amount >= 0n)
+      type TypedActor = { since: Date; roles: Set<string>; id: bigint }
+      const typedStep = stepsOf(
+        TypedState,
+        actor<TypedActor>(),
+        commitContext<TestCommit>(),
+      )
+      const next = {
+        when: new Date(20),
+        members: new Set(['c', 'a']),
+        amount: 2n,
+      }
+      const type = caseType({
+        name: `typed-${randomUUID()}`,
+        state: TypedState,
+        steps: [
+          typedStep({
+            name: 'change',
+            input: Details,
+            requires: {
+              original: (s) =>
+                s.details.when.getTime() === 10 && s.details.amount === 1n,
+              ordered: (s) => [...s.details.members][0] === 'b',
+            },
+            permits: {
+              editor: (_s, { actor: a }) =>
+                a.since.getTime() === 0 && a.roles.has('editor') && a.id === 7n,
+            },
+            handler: async (s, ctx) => {
+              expect(s.details.members).toBeInstanceOf(Set)
+              expect(ctx.input).toEqual(next)
+              expect(ctx.actor.since).toBeInstanceOf(Date)
+              return { ...s, details: Details.parse(ctx.input) }
+            },
+          }),
+        ],
+      })
+      const engine = createEngine({ storage: f.storage, caseTypes: [type] })
+      const initial = {
+        details: {
+          when: new Date(10),
+          members: new Set(['b', 'a']),
+          amount: 1n,
+        },
+        nullable: null,
+        unset: undefined,
+      }
+      const who = { since: new Date(0), roles: new Set(['editor']), id: 7n }
+      const created = await engine.createCase(type.name, initial)
+      expect((await engine.case(created.id)).state).toStrictEqual(initial)
+      const result = await engine.execute(created.id, 'change', {
+        actor: who,
+        input: next,
+      })
+      const current = { ...initial, details: next }
+      expect(result.state).toStrictEqual(current)
+      expect((await engine.case(created.id)).state).toStrictEqual(current)
+      expect((await engine.listCases()).cases[0]?.state).toStrictEqual(current)
+      const candidates = await f.storage.migrations.candidates(
+        type.name,
+        'unused',
+        {},
+        null,
+        10,
+      )
+      expect(candidates.cases[0]?.state).toStrictEqual(current)
+
+      const entries = await engine.journal(created.id)
+      const claim = entries.find(isClaimedEntry)!
+      const completed = entries.find((entry) => entry.entry === 'completed')!
+      expect(claim.state).toStrictEqual(initial)
+      expect(claim.actor).toStrictEqual(who)
+      expect(claim.input).toStrictEqual(next)
+      expect(claim.delta).toBeNull()
+      expect(completed.state).toBeNull()
+      expect(completed.actor).toStrictEqual(who)
+      expect(completed.delta).toEqual(result.delta)
+      expect(JSON.parse(JSON.stringify(result.delta))).toEqual([
+        { op: 'replace', path: '/json/details/amount', value: '2' },
+        { op: 'replace', path: '/json/details/members/1', value: 'c' },
+        {
+          op: 'replace',
+          path: '/json/details/when',
+          value: '1970-01-01T00:00:00.020Z',
+        },
+      ])
+      const replay = await replayGuard(type, claim)
+      expect(replay.matches).toBe(true)
+      expect(replay.reproduced).toEqual(claim.guard)
+      const invalid = await replayGuard(type, {
+        ...claim,
+        state: { details: {} },
+      })
+      expect(invalid.reproduced).toBeNull()
+      expect(invalid.unaddressable?.reason).toMatch(/state schema/)
+
+      await f.corrupt(created.id, { details: { ...next, when: 'invalid' } })
+      await expect(engine.case(created.id)).rejects.toThrow(
+        CaseStateValidationError,
+      )
+    })
+
+    it('preserves null and undefined complete snapshots and recorded values', async () => {
+      const f = await factory()
+      const Any = z.unknown()
+      const step = stepsOf(Any, undefined, commitContext<TestCommit>())
+      const type = caseType({
+        name: `nullable-${randomUUID()}`,
+        state: Any,
+        steps: [
+          step({
+            name: 'to-undefined',
+            input: Any,
+            handler: async () => undefined,
+          }),
+        ],
+      })
+      const engine = createEngine({ storage: f.storage, caseTypes: [type] })
+      const created = await engine.createCase(type.name, null)
+      expect((await engine.case(created.id)).state).toBeNull()
+      await engine.execute(created.id, 'to-undefined', {
+        actor: undefined,
+        input: null,
+      })
+      expect((await engine.case(created.id)).state).toBeUndefined()
+      await engine.execute(created.id, 'to-undefined', { actor: null })
+      const claims = (await engine.journal(created.id)).filter(isClaimedEntry)
+      expect(claims[0]).toMatchObject({
+        state: null,
+        actor: undefined,
+        input: null,
+      })
+      expect(claims[1]).toMatchObject({
+        state: undefined,
+        actor: null,
+        input: undefined,
+      })
+      expect((await replayGuard(type, claims[1]!)).matches).toBe(true)
+    })
+
+    it('rejects unsupported values without partial writes or retrying deterministic serialization failures', async () => {
+      const f = await factory()
+      const Any = z.unknown()
+      const step = stepsOf(Any, undefined, commitContext<TestCommit>())
+      let runs = 0
+      const type = caseType({
+        name: `unsupported-${randomUUID()}`,
+        state: Any,
+        steps: [
+          step({
+            name: 'bad',
+            input: Any,
+            handler: async (_s, ctx) => {
+              runs += 1
+              ctx.onCommit(async (tx) => {
+                await tx.record('must not commit')
+              })
+              return { bad: () => {} }
+            },
+          }),
+        ],
+      })
+      const engine = createEngine({ storage: f.storage, caseTypes: [type] })
+      await expect(
+        engine.createCase(type.name, { bad: Symbol('bad') }),
+      ).rejects.toThrow(SerializationError)
+      expect((await engine.listCases()).cases).toHaveLength(0)
+      const created = await engine.createCase(type.name, { ok: true })
+      for (const options of [
+        { actor: () => {} },
+        { actor: null, input: new Map() },
+      ]) {
+        await expect(
+          engine.execute(created.id, 'bad', options),
+        ).rejects.toThrow(SerializationError)
+        expect(await engine.journal(created.id)).toEqual([])
+      }
+      expect(runs).toBe(0)
+      await expect(
+        engine.execute(created.id, 'bad', { actor: null }),
+      ).rejects.toThrow(StepExecutionError)
+      expect(runs).toBe(1)
+      expect((await engine.case(created.id)).state).toEqual({ ok: true })
+      expect((await engine.case(created.id)).seq).toBe(0)
+      expect(await f.records()).toEqual([])
+      expect((await engine.journal(created.id)).map((e) => e.entry)).toEqual([
+        'claimed',
+        'failed',
+      ])
+      // A second execution can claim immediately after failure.
+      await expect(
+        engine.execute(created.id, 'bad', { actor: null }),
+      ).rejects.toThrow(StepExecutionError)
+      expect(runs).toBe(2)
+    })
+
     it('lists registered cases with stable paging, filtering and the same validation as addressed reads', async () => {
       const f = await factory()
       const type = define([

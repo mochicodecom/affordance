@@ -14,7 +14,7 @@ const files = (directory: string): string[] =>
         ? [path]
         : []
   })
-const allowed = new Set(['@standard-schema/spec'])
+const allowed = new Set(['@standard-schema/spec', 'superjson'])
 
 /** Inspect syntax, so comments about adapters cannot hide or trigger violations. */
 const violations = (text: string, file: string): string[] => {
@@ -76,7 +76,7 @@ const violations = (text: string, file: string): string[] => {
 }
 
 describe('core storage separation', () => {
-  it('keeps core imports inside core, standard schemas and Node builtins', () => {
+  it('keeps core imports inside core, approved serialization/schema libraries and Node builtins', () => {
     const found = files(root).flatMap((file) =>
       violations(readFileSync(file, 'utf8'), file).map(
         (message) => `${file}: ${message}`,

@@ -61,3 +61,18 @@ permissions; the host controls access just as for addressed case reads.
 
 See [storage adapters](https://github.com/mochicodecom/affordance/blob/main/docs/storage.md)
 for the public interfaces, transaction guarantees, and custom commit contexts.
+
+## Stored runtime values
+
+Date, Set and bigint are supported by default, including nested values, without
+application codec configuration. Guards and handlers keep the application's
+runtime schema and types. Adapters use core's serialization format for complete
+state, claim-time snapshots, actors and inputs.
+
+Journal deltas compare serialized values and type metadata: value paths begin
+with `/json`, and runtime type changes can affect `/meta`. Sets compare by
+structural membership regardless of insertion order; complete snapshots retain
+iteration order. `replayGuard` is asynchronous because it schema-validates the
+restored full snapshot before guard reevaluation. Neither loading nor replay
+depends on deltas. See the [storage contract](../../docs/storage.md#serialization-contract)
+for adapter requirements and unsupported values that throw `SerializationError`.

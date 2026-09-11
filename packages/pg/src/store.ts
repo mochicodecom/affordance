@@ -1,6 +1,11 @@
 import type { CaseHandle, Dormancy } from '@affordance/core'
 import { CaseNotFoundError } from '@affordance/core'
-import { mintId, validateAgainstSchema } from '@affordance/core/storage'
+import {
+  deserializeValue,
+  mintId,
+  serializeValue,
+  validateAgainstSchema,
+} from '@affordance/core/storage'
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import { FRAMEWORK_SCHEMA } from './bootstrap.js'
 import type { Queryable, Transaction } from './queryable.js'
@@ -64,7 +69,7 @@ export const insertStoredCase = async <TState>(
     `insert into ${CASES} (id, case_type, state)
      values ($1, $2, $3::jsonb)
      returning ${CASE_COLUMNS}`,
-    [id, caseTypeName, JSON.stringify(state)],
+    [id, caseTypeName, JSON.stringify(serializeValue(state))],
   )
   const row = rows[0]
   if (!row) throw new Error(`insert into ${CASES} returned no row`)
@@ -106,7 +111,7 @@ export const selectCaseUntyped = async (
   )
   const row = rows[0]
   if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, row.state)
+  return toHandle(row, deserializeValue(row.state))
 }
 
 /**
@@ -128,7 +133,7 @@ export const selectCaseForUpdate = async (
   )
   const row = rows[0]
   if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, row.state)
+  return toHandle(row, deserializeValue(row.state))
 }
 
 /** The dormancy transition a committing Execution applies to the case row (`end()` / `reopen()`). */
@@ -158,9 +163,9 @@ export const updateCaseState = async (
          updated_at = now()
      where id = $1
      returning ${CASE_COLUMNS}`,
-    [id, JSON.stringify(state), dormancy],
+    [id, JSON.stringify(serializeValue(state)), dormancy],
   )
   const row = rows[0]
   if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, row.state)
+  return toHandle(row, deserializeValue(row.state))
 }

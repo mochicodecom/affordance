@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { serializeValue } from '@affordance/core/storage'
 import { testPool } from '@affordance/testkit'
 import { beforeAll } from 'vitest'
 import { storageContract } from '../../core/test/storage/contract.js'
@@ -38,7 +39,7 @@ storageContract('Postgres', () => {
     corrupt: async (id: string, state: unknown) => {
       await pool.query(
         'update affordance.cases set state = $2::jsonb where id = $1',
-        [id, JSON.stringify(state)],
+        [id, JSON.stringify(serializeValue(state))],
       )
     },
     expire: async (id: string) => {

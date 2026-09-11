@@ -1,4 +1,5 @@
 import { caseType, createEngine } from '@affordance/core'
+import { serializeValue } from '@affordance/core/storage'
 import { testPool } from '@affordance/testkit'
 import { expect, it } from 'vitest'
 import { z } from 'zod'
@@ -28,7 +29,7 @@ it('serializes dedicated-client operations and keeps reads outside a rolled-back
     const aborted = withTransaction(db, async (tx) => {
       await tx.query(
         'update affordance.cases set state = $2::jsonb where id = $1',
-        [created.id, JSON.stringify({ count: 1 })],
+        [created.id, JSON.stringify(serializeValue({ count: 1 }))],
       )
       entered()
       await finish

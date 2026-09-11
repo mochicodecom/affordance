@@ -53,6 +53,82 @@ Provider calls remain outside storage transactions and must tolerate retries.
 Delivery settlement remains separate from case execution, preserving the existing
 crash/recovery behavior; this interface does not promise exactly-once external effects.
 
+## Serialization contract
+
+Core owns the storage format. Adapters exchange runtime values with the engine
+and use `serializeValue` and `deserializeValue` from `@affordance/core/storage`
+at their persistence boundary. Applications do not register codecs or change
+their state schemas. Date, Set and bigint work at the document root and inside
+objects, arrays and Sets. Null, explicit undefined and absent properties remain
+distinct. JSON scalars, finite numbers (including negative zero), dense arrays
+and plain objects are supported as well.
+
+```ts
+import { serializeValue, deserializeValue } from '@affordance/core/storage'
+
+const document = serializeValue({ due: new Date(0), amount: 10n })
+// {
+//   version: 1,
+//   json: { due: '1970-01-01T00:00:00.000Z', amount: '10' },
+//   meta: { values: { due: ['Date'], amount: ['bigint'] }, v: 1 }
+// }
+const stored = JSON.stringify(document)
+const restored = deserializeValue(JSON.parse(stored))
+```
+
+Persist the entire version 1 document, including metadata, for each current-state
+value, claimed state snapshot, journaled actor and journaled input. Decode on all
+reads: addressed loads, lists, transactional loads, journal reads and migration
+candidate pages. Core schema-validates the decoded state before using it. Missing
+actor/input fields in a journal append default to null; explicitly supplied
+undefined is preserved. Non-claimed entries have no snapshot and return null.
+A claimed snapshot whose state is null or undefined still has its own encoded
+document.
+
+Complete state is saved independently of the delta. Current-state reads never
+need journal entries. `await replayGuard(definition, claimedEntry)` validates the
+already decoded complete snapshot, then reevaluates today's guard against that
+state, recorded actor and evaluation time. It supports asynchronous schemas;
+schema rejection produces an `unaddressable` replay result. Replay does not
+read, compute or apply a delta and does not run handlers.
+
+Deltas are RFC 6902 JSON Patch operations comparing serialized documents. Paths
+under `/json` describe value changes; paths under `/meta` describe runtime type
+changes, such as a string becoming a Date with identical text. Store the delta
+verbatim, without wrapping it in another serialization document. The completed
+entry and execution result contain the same delta. Arrays compare positionally.
+
+For diffing only, Sets compare by structural membership, independent of insertion
+order. Members sort lexicographically by their serialized representation,
+including runtime type metadata and recursively sorted object keys and nested
+Sets. Distinct object members with identical contents retain their multiplicity;
+object identity itself is not journal evidence. Reordering equivalent membership
+produces no delta. Complete snapshots retain Set iteration order, so guards that
+inspect that order can reproduce their recorded decision. Repeated references
+are copied as independent values; reference identity is not part of the contract.
+
+Unsupported values throw `SerializationError` instead of being omitted, converted
+to null, or replaced with a marker. These include functions, symbols and symbol
+keys, cycles, non-finite numbers, invalid Dates, custom class instances, Map,
+RegExp, typed arrays, sparse arrays, accessors, non-enumerable properties, and
+custom properties on arrays, Dates or Sets. Objects containing the JSON keys
+`__proto__`, `constructor` or `prototype` use an internal entry-array encoding
+because SuperJSON reserves those names. Their keys and values round-trip as data,
+and their delta paths address that encoded array. Null-prototype objects decode
+as plain objects. Invalid format versions and deserialization failures also throw
+`SerializationError`. An unsupported returned state fails the execution without
+retry, state changes or commit effects; an invalid actor/input prevents the claim
+transaction from committing.
+
+The format uses [SuperJSON](https://github.com/flightcontrolhq/superjson) with a
+private instance and a supported-value check. Its built-in type metadata avoids
+maintaining a custom type codec. We also evaluated
+[fast-json-patch](https://github.com/Starcounter-Jack/JSON-Patch); the existing
+small comparer already handles JSON documents and JSON Pointer escaping, so
+serializing its inputs meets the evidence contract without another dependency.
+There is no patch-application API. This format is for newly written data; it has
+no reader for previously persisted unwrapped state or journal values.
+
 ## Application commit contexts
 
 The Postgres default context is its `Transaction`. Apps can expose repositories
