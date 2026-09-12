@@ -1,5 +1,9 @@
 import type { MigrationOptions } from '@affordance/core'
-import type { MigrationPage } from '@affordance/core/storage'
+import type {
+  MigrationCandidate,
+  MigrationPage,
+} from '@affordance/core/storage'
+import { deserializeValue, SerializationError } from '@affordance/core/storage'
 import { FRAMEWORK_SCHEMA } from './bootstrap.js'
 import type { Queryable } from './queryable.js'
 import { sqlWhere } from './sql.js'
@@ -41,7 +45,17 @@ export const findCandidates = async (
     values,
   )
   return {
-    cases: rows,
+    cases: rows.map((row): MigrationCandidate => {
+      try {
+        return {
+          id: row.id,
+          state: deserializeValue(row.state, `case '${row.id}' state`),
+        }
+      } catch (error) {
+        if (!(error instanceof SerializationError)) throw error
+        return { id: row.id, error }
+      }
+    }),
     nextCursor: rows.length === batchSize ? (rows.at(-1)?.id ?? null) : null,
   }
 }

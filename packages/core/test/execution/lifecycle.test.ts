@@ -138,7 +138,9 @@ describe('claim → run → commit', () => {
     const result = await run('increment')
 
     expect(result).toMatchObject({ attempts: 1, seq: 1, state: { count: 1 } })
-    expect(result.delta).toEqual([{ op: 'replace', path: '/count', value: 1 }])
+    expect(result.delta).toEqual([
+      { op: 'replace', path: '/json/count', value: 1 },
+    ])
     expect(store.caseRow('case:1')).toMatchObject({
       state: { count: 1 },
       seq: 1,

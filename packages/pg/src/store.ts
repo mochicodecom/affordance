@@ -1,6 +1,11 @@
 import type { CaseHandle, Dormancy } from '@affordance/core'
 import { CaseNotFoundError } from '@affordance/core'
-import { mintId, validateAgainstSchema } from '@affordance/core/storage'
+import {
+  deserializeValue,
+  mintId,
+  serializeValue,
+  validateAgainstSchema,
+} from '@affordance/core/storage'
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import { FRAMEWORK_SCHEMA } from './bootstrap.js'
 import type { Queryable, Transaction } from './queryable.js'
@@ -37,8 +42,8 @@ export const toHandle = <State>(
 
 /**
  * `createCase` against an explicit {@link Queryable} — the shared-transaction
- * seam. State is stringified explicitly so array-rooted documents are stored
- * as jsonb rather than misread as Postgres arrays.
+ * seam. The schema output is encoded with core's format and persisted as one
+ * complete jsonb document, including its runtime type metadata.
  */
 export const insertCase = async <S extends StandardSchemaV1>(
   db: Queryable,
@@ -64,7 +69,11 @@ export const insertStoredCase = async <TState>(
     `insert into ${CASES} (id, case_type, state)
      values ($1, $2, $3::jsonb)
      returning ${CASE_COLUMNS}`,
-    [id, caseTypeName, JSON.stringify(state)],
+    [
+      id,
+      caseTypeName,
+      JSON.stringify(serializeValue(state, `case '${id}' state`)),
+    ],
   )
   const row = rows[0]
   if (!row) throw new Error(`insert into ${CASES} returned no row`)
@@ -106,7 +115,7 @@ export const selectCaseUntyped = async (
   )
   const row = rows[0]
   if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, row.state)
+  return toHandle(row, deserializeValue(row.state, `case '${row.id}' state`))
 }
 
 /**
@@ -128,7 +137,7 @@ export const selectCaseForUpdate = async (
   )
   const row = rows[0]
   if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, row.state)
+  return toHandle(row, deserializeValue(row.state, `case '${row.id}' state`))
 }
 
 /** The dormancy transition a committing Execution applies to the case row (`end()` / `reopen()`). */
@@ -158,9 +167,9 @@ export const updateCaseState = async (
          updated_at = now()
      where id = $1
      returning ${CASE_COLUMNS}`,
-    [id, JSON.stringify(state), dormancy],
+    [id, JSON.stringify(serializeValue(state, `case '${id}' state`)), dormancy],
   )
   const row = rows[0]
   if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, row.state)
+  return toHandle(row, deserializeValue(row.state, `case '${row.id}' state`))
 }

@@ -1,4 +1,13 @@
-/** Public interface for storage adapters. Every member belongs to one coordinated store. */
+/**
+ * Public interface for storage adapters. Every member belongs to one coordinated store.
+ * Methods exchange runtime values. Adapters encode complete case state and journal
+ * actor/input/claimed state with serializeValue, and decode with deserializeValue
+ * on every read, including transactional loads, listings and migration candidates.
+ * Core validates decoded state against the case type's schema. Deltas are already
+ * JSON-safe evidence and are stored verbatim, separately from complete state.
+ * Migration pages isolate row decoding failures as MigrationCandidate.error;
+ * other reads and storage-wide failures throw.
+ */
 import type { JournalEntry, JournalFilter } from './execution/journal.js'
 import type { LifecyclePort } from './execution/port.js'
 import type {
@@ -12,6 +21,7 @@ import type {
   ExternalEvent,
 } from './ingestion/ingest.js'
 import type { MigrationOptions } from './migration/migrate.js'
+import type { SerializationError } from './serialization.js'
 import type { StoredCase } from './store/store.js'
 
 export interface CaseListOptions {
@@ -82,8 +92,17 @@ export interface DeliveryRepository {
   deadLetters(filter?: DeadLetterFilter): Promise<readonly DeadLetter[]>
 }
 
+/** A decoded candidate, or a failure isolated to that row. Storage outages still throw. */
+export type MigrationCandidate =
+  | { readonly id: string; readonly state: unknown; readonly error?: never }
+  | {
+      readonly id: string
+      readonly state?: never
+      readonly error: SerializationError
+    }
+
 export interface MigrationPage {
-  readonly cases: readonly { readonly id: string; readonly state: unknown }[]
+  readonly cases: readonly MigrationCandidate[]
   readonly nextCursor: string | null
 }
 
@@ -116,6 +135,12 @@ export interface EngineStorage<TCommit = unknown> {
 export { projectEntry } from './execution/journal.js'
 export type { HeldClaim, LifecyclePort, LifecycleTx } from './execution/port.js'
 export type { CommitEffect } from './model/handler.js'
+export type { JsonObject, JsonValue, SerializedValue } from './serialization.js'
+export {
+  deserializeValue,
+  SerializationError,
+  serializeValue,
+} from './serialization.js'
 export { mintId } from './store/ids.js'
 export type { StoredCase } from './store/store.js'
 export { validateAgainstSchema } from './store/store.js'

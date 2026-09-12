@@ -21,7 +21,7 @@ export const SCHEMA_VERSION = 4
  *                creation; every framework id carries its kind (see `ids.ts`)
  * - `case_type`  the Case Type name (the code definition floats; only the
  *                name is persisted)
- * - `state`      the materialized Case State document
+ * - `state`      the complete Case State encoded with core's serialization format
  * - `seq`        per-case monotonic sequence counter, starts at 0; bumped by
  *                every committed Execution
  * - `ended_at`   dormancy marker written by `end()` — null while active;
@@ -39,9 +39,9 @@ export const SCHEMA_VERSION = 4
  *                  every entry so `where scope_key = …` is the per-track audit
  * - `as_of`/`guard`/`state` — on `claimed`: the transactional guard
  *                  re-evaluation, the instant it was evaluated as of, and the
- *                  Case State it was evaluated against. Together they make
+ *                  complete encoded Case State it was evaluated against. Together they make
  *                  audit reconstruction exact rather than approximate.
- * - `delta`        on `completed`: the JSON-Patch delta (previous → next)
+ * - `delta`        on `completed`: JSON Patch comparing encoded state documents
  * - `dormancy`     on `completed`: `end()` / `reopen()` called by the handler
  * - `error`        on `attempt-failed` / `failed` / `expired`
  *

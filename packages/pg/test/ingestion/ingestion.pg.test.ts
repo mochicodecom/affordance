@@ -1,3 +1,4 @@
+import { deserializeValue } from '@affordance/core/storage'
 import { createPgStorage } from '../../src/index.js'
 /**
  * Ingestion and correlation against a real database, including the two
@@ -35,11 +36,11 @@ const RUN = randomUUID().slice(0, 8)
 const unique = (name: string): string => `${name}_${RUN}`
 
 const stateOf = async (caseId: string): Promise<Signing> => {
-  const { rows } = await pool.query<{ state: Signing }>(
+  const { rows } = await pool.query<{ state: unknown }>(
     `select state from ${FRAMEWORK_SCHEMA}.cases where id = $1`,
     [caseId],
   )
-  return rows[0]!.state
+  return deserializeValue(rows[0]!.state) as Signing
 }
 
 /** One buyer, with their envelope sent and correlated by the handler. */

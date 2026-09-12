@@ -141,6 +141,8 @@ export {
   stepsOf,
   UnknownStepError,
 } from './model/index.js'
+export type { JsonObject, JsonValue } from './serialization.js'
+export { SerializationError } from './serialization.js'
 export type { CaseListOptions, CasePage, EngineStorage } from './storage.js'
 export type { CaseHandle, Dormancy } from './store/index.js'
 export { CaseNotFoundError, CaseStateValidationError } from './store/index.js'

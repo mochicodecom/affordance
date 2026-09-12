@@ -43,7 +43,7 @@ export interface JournalError {
   readonly message: string
 }
 
-/** One journal entry, JSON-serializable throughout (timestamps are ISO-8601 UTC). */
+/** One decoded journal entry. Actor, input and state may contain supported runtime types. */
 export interface JournalEntry {
   /** Total insertion order across all cases; per-case order is `(caseId, ordinal)`. */
   readonly ordinal: number
@@ -59,7 +59,10 @@ export interface JournalEntry {
   readonly scopeKey: string | null
   /** The acting Actor, as supplied by the app. */
   readonly actor: unknown
-  /** The step input, post-validation (schema output), or `null`. */
+  /**
+   * Validated input on engine-written claimed entries, including explicit undefined.
+   * Later lifecycle entries omit input evidence and default this field to null.
+   */
   readonly input: unknown
   /** The instant the claim's guard re-evaluation was made as of, on `claimed` entries. */
   readonly asOf: string | null
@@ -185,11 +188,11 @@ export const projectEntry = (input: JournalEntryInput): JournalEntryColumns => {
     attempt: input.attempt,
     step: input.step,
     scopeKey: input.scopeKey ?? null,
-    actor: input.actor ?? null,
-    input: input.input ?? null,
+    actor: Object.hasOwn(input, 'actor') ? input.actor : null,
+    input: Object.hasOwn(input, 'input') ? input.input : null,
     asOf: claimed?.asOf ?? null,
     guard: claimed?.guard ?? null,
-    state: claimed?.state ?? null,
+    state: claimed === null ? null : claimed.state,
     delta: completed?.delta ?? null,
     dormancy: completed?.dormancy ?? null,
     error: failure?.error ?? null,

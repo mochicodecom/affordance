@@ -1,34 +1,32 @@
 /**
- * State deltas — what an Execution changed, as RFC 6902 JSON Patch.
- *
- * Every committed Execution journals the delta from the previous Case State
- * to the next. A standard patch format is deliberate: the delta is
- * an audit artifact read by people and machines that are not this library, so
- * it should not need a bespoke decoder. Paths are RFC 6901 JSON Pointers.
- *
- * Pure and total over JSON values — no clock, no I/O, no schema knowledge.
+ * Journal evidence as RFC 6902 operations with RFC 6901 pointers. Operations
+ * compare encoded documents; interpreting their values and metadata follows
+ * the format documented in docs/storage.md#serialization-contract.
  */
+
+import type { JsonValue } from '../serialization.js'
+import { serializeForDiff } from '../serialization.js'
 
 /** One JSON Patch operation. */
 export type PatchOp =
-  | { readonly op: 'add'; readonly path: string; readonly value: unknown }
+  | { readonly op: 'add'; readonly path: string; readonly value: JsonValue }
   | { readonly op: 'remove'; readonly path: string }
-  | { readonly op: 'replace'; readonly path: string; readonly value: unknown }
+  | { readonly op: 'replace'; readonly path: string; readonly value: JsonValue }
 
-/** An Execution's state delta: the ops taking the previous Case State to the next. */
+/** Journal evidence comparing serialized state documents; never used to load state. */
 export type StateDelta = readonly PatchOp[]
 
 /** RFC 6901 escaping: `~` → `~0`, `/` → `~1`. */
 const escapeToken = (token: string): string =>
   token.replace(/~/g, '~0').replace(/\//g, '~1')
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+const isPlainObject = (value: unknown): value is Record<string, JsonValue> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
- * Structural equality over JSON values. `undefined` never appears in a
- * document that round-tripped through JSON storage, but a handler's return value has
- * not round-tripped yet, so it is compared as-is.
+ * Structural equality for JSON-shaped evidence, such as guard evaluations.
+ * This helper does not compare runtime Date or Set values. Use diffState for
+ * Case State, which encodes supported runtime types before comparison.
  */
 export const jsonEqual = (a: unknown, b: unknown): boolean => {
   if (a === b) return true
@@ -51,8 +49,8 @@ export const jsonEqual = (a: unknown, b: unknown): boolean => {
 const diffInto = (
   ops: PatchOp[],
   path: string,
-  previous: unknown,
-  next: unknown,
+  previous: JsonValue,
+  next: JsonValue,
 ): void => {
   if (previous === next) return
 
@@ -76,14 +74,14 @@ const diffInto = (
     for (const key of Object.keys(previous)) {
       const child = `${path}/${escapeToken(key)}`
       if (!Object.hasOwn(next, key)) ops.push({ op: 'remove', path: child })
-      else diffInto(ops, child, previous[key], next[key])
+      else diffInto(ops, child, previous[key]!, next[key]!)
     }
     for (const key of Object.keys(next)) {
       if (!Object.hasOwn(previous, key)) {
         ops.push({
           op: 'add',
           path: `${path}/${escapeToken(key)}`,
-          value: next[key],
+          value: next[key]!,
         })
       }
     }
@@ -99,9 +97,14 @@ const diffInto = (
 }
 
 /**
- * The delta from one Case State document to the next. An Execution that
- * changed nothing yields an empty delta — a real and unremarkable outcome
- * (a handler whose only effect was external, or a no-op retry landing).
+ * Compare serialized Case State documents, including type metadata. Value paths
+ * start at `/json`; type changes may also change `/meta`. Sets are compared by
+ * structural membership, ignoring insertion order; snapshots retain that order.
+ * The returned operations are journal evidence, never a state loading mechanism.
+ *
+ * An unchanged document yields an empty delta. Unsupported values throw
+ * SerializationError. Object keys use the canonical order documented in
+ * docs/storage.md#serialization-contract; existing keys precede additions.
  *
  * Arrays are diffed positionally: element *i* against element *i*, then
  * appends and trailing removals. Case State collections are keyed by the
@@ -110,6 +113,11 @@ const diffInto = (
  */
 export const diffState = (previous: unknown, next: unknown): StateDelta => {
   const ops: PatchOp[] = []
-  diffInto(ops, '', previous, next)
+  diffInto(
+    ops,
+    '',
+    { ...serializeForDiff(previous, 'previous state') },
+    { ...serializeForDiff(next, 'next state') },
+  )
   return ops
 }

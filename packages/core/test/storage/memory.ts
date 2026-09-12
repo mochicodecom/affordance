@@ -16,8 +16,16 @@ import type {
   HeldClaim,
   StoredCase,
 } from '../../src/storage.js'
-import { mintId, projectEntry } from '../../src/storage.js'
+import {
+  deserializeValue,
+  mintId,
+  projectEntry,
+  serializeValue,
+} from '../../src/storage.js'
 import type { AdapterFixture, TestCommit } from './contract.js'
+
+const recordedCopy = (value: unknown): unknown =>
+  deserializeValue(JSON.parse(JSON.stringify(serializeValue(value))))
 
 export const memoryAdapter = (): AdapterFixture => {
   let data = {
@@ -81,8 +89,12 @@ export const memoryAdapter = (): AdapterFixture => {
   const append: EngineStorage<TestCommit>['execution']['appendEntry'] = async (
     input,
   ) => {
+    const projected = projectEntry(input)
     const entry: JournalEntry = {
-      ...projectEntry(input),
+      ...projected,
+      actor: recordedCopy(projected.actor),
+      input: recordedCopy(projected.input),
+      state: recordedCopy(projected.state),
       id: mintId('journal'),
       ordinal: data.journal.length + 1,
       recordedAt: new Date().toISOString(),
@@ -104,7 +116,7 @@ export const memoryAdapter = (): AdapterFixture => {
           const row: StoredCase = {
             id: mintId('case'),
             caseTypeName,
-            state: structuredClone(state),
+            state: recordedCopy(state),
             seq: 0,
             endedAt: null,
             createdAt: new Date(),
@@ -183,7 +195,7 @@ export const memoryAdapter = (): AdapterFixture => {
             appendEntry: append,
             updateCaseState: async (state, dormancy) => {
               const row = get(id)
-              row.state = structuredClone(state)
+              row.state = recordedCopy(state)
               row.seq += 1
               row.updatedAt = new Date()
               if (dormancy === 'ended') row.endedAt = new Date()

@@ -19,6 +19,7 @@ library. The private reference app owns its HTTP interface.
 | Computing available and blocked steps without I/O | [compute.ts](../../../packages/core/src/engine/compute.ts) |
 | Claim, run, commit, retries, and takeover | [execute.ts](../../../packages/core/src/execution/execute.ts) |
 | Journal records and state deltas | [journal.ts](../../../packages/core/src/execution/journal.ts), [delta.ts](../../../packages/core/src/execution/delta.ts) |
+| Typed state and recorded-value encoding | [serialization.ts](../../../packages/core/src/serialization.ts) |
 | Postgres tables and case persistence | [bootstrap.ts](../../../packages/pg/src/bootstrap.ts), [store.ts](../../../packages/pg/src/store.ts) |
 | External event deduplication, correlation, and dead letters | [ingest.ts](../../../packages/core/src/ingestion/ingest.ts) |
 | Public storage interfaces and adapter composition | [storage.ts](../../../packages/core/src/storage.ts), [Postgres adapter](../../../packages/pg/src/storage.ts) |

@@ -143,8 +143,9 @@ and return a new document, and external effects should deduplicate on
 `ctx.executionId`. Separate execute calls have separate IDs; deduplication
 across them needs an application-level key.
 
-Invalid returned state and lost claim ownership fail without retry. Other
-handler or commit failures retry according to the step's policy. When retries
+Invalid returned state, framework encoding failures and lost claim ownership fail
+without retry. Application handler and commit callback failures follow the step's
+retry policy, including SerializationError raised by those callbacks. When retries
 are exhausted, the execution records failure and releases its claim.
 
 A process crash stops heartbeats. A later claimant can take over an expired
@@ -171,10 +172,18 @@ JSON Patch delta. Failed attempts and final failures store errors; `expired`
 records abandonment on takeover. Reads, case creation, and refused claims do
 not append execution entries.
 
-Reading current state does not replay the journal. To explain a past execution,
-read its recorded evidence. `replayGuard` optionally runs today's definition on
-that evidence and reports differences; it neither reruns handlers nor changes
-the original record.
+Core's [serialization contract](storage.md#serialization-contract) preserves
+Date, Set and bigint in complete current-state documents, claimed snapshots,
+actors and inputs. Adapters encode before persisting and decode before returning
+runtime values; core schema-validates decoded state. Deltas compare serialized
+state and type metadata, with Set membership compared independently of insertion
+order. Complete snapshots retain Set iteration order.
+
+Reading current state loads its complete stored document. To explain a past
+execution, read its recorded evidence. `await replayGuard(definition, entry)`
+validates the decoded complete claim-time snapshot before reevaluating today's
+guard against the schema's output, including defaults and transformations. It reports differences without reading or applying deltas,
+rerunning handlers, or changing the original record.
 
 ## Long-running work becomes state plus later events
 

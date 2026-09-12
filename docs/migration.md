@@ -65,7 +65,9 @@ A dry run computes deltas without claims, writes, or journal markers. It does
 **not** validate the transformed result against the schema, and it cannot prove
 that a real execution can acquire the case. Validate transform outputs
 separately; an unreadable stored document can reach a dry-run transform even
-though a real migration would fail before invoking it.
+though a real migration would fail before invoking it. A snapshot that cannot be
+decoded at all is reported as a per-case failure in either mode; other candidates
+continue. An adapter query failure stops the sweep.
 
 Once the preview and schema checks pass, run one migration runner:
 

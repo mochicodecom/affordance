@@ -21,7 +21,8 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@standard-schema/spec": "^1.1.0"
+    "@standard-schema/spec": "^1.1.0",
+    "superjson": "^2.2.6"
   },
   "devDependencies": {
     "@affordance/testkit": "workspace:*",
