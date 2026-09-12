@@ -18,6 +18,7 @@ import {
   stepsOf,
 } from '../../src/index.js'
 import type { EngineStorage } from '../../src/storage.js'
+import { serializeValue } from '../../src/storage.js'
 
 export interface TestCommit {
   record(message: string): Promise<void>
@@ -160,7 +161,13 @@ export const storageContract = (
         state: { details: {} },
       })
       expect(invalid.reproduced).toBeNull()
-      expect(invalid.unaddressable?.reason).toMatch(/state schema/)
+      expect(invalid.unaddressable?.reason).toContain(claim.executionId)
+      expect(invalid.unaddressable?.reason).toMatch(/expected date/)
+      expect(invalid.unaddressable?.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: ['details', 'when'] }),
+        ]),
+      )
 
       await f.corrupt(created.id, { details: { ...next, when: 'invalid' } })
       await expect(engine.case(created.id)).rejects.toThrow(
@@ -261,6 +268,114 @@ export const storageContract = (
       ).rejects.toThrow(StepExecutionError)
       expect(runs).toBe(2)
     })
+
+    it('journals the encoder cause with case, step and state context', async () => {
+      const f = await factory()
+      const State = z.unknown()
+      const type = caseType({
+        name: `encoder-cause-${randomUUID()}`,
+        state: State,
+        steps: [
+          stepsOf(State)({
+            name: 'broken',
+            handler: async () =>
+              new Proxy(
+                {},
+                {
+                  ownKeys: () => {
+                    throw new RangeError('object inspection failed')
+                  },
+                },
+              ),
+          }),
+        ],
+      })
+      const engine = createEngine({ storage: f.storage, caseTypes: [type] })
+      const created = await engine.createCase(type.name, {})
+      await expect(
+        engine.execute(created.id, 'broken', { actor: null }),
+      ).rejects.toThrow(StepExecutionError)
+      const entries = await engine.journal(created.id)
+      expect(entries.map((entry) => entry.entry)).toEqual(['claimed', 'failed'])
+      expect(entries[1]?.error).toEqual({
+        name: 'SerializationError',
+        message: `case '${created.id}', step 'broken': Could not encode next state: object inspection failed`,
+      })
+      expect((await engine.case(created.id)).seq).toBe(0)
+    })
+
+    it('commits reordered Set membership with an empty delta while preserving both snapshot orders', async () => {
+      const f = await factory()
+      const State = z.set(z.bigint())
+      const step = stepsOf(State, undefined, commitContext<TestCommit>())
+      const type = caseType({
+        name: `set-order-${randomUUID()}`,
+        state: State,
+        steps: [
+          step({
+            name: 'reorder',
+            requires: { originalOrder: (s) => [...s][0] === 2n },
+            handler: async (s) => new Set([...s].reverse()),
+          }),
+        ],
+      })
+      const engine = createEngine({ storage: f.storage, caseTypes: [type] })
+      const created = await engine.createCase(type.name, new Set([2n, 1n]))
+      const result = await engine.execute(created.id, 'reorder', {
+        actor: null,
+      })
+      expect(result.delta).toEqual([])
+      expect([...State.parse((await engine.case(created.id)).state)]).toEqual([
+        1n,
+        2n,
+      ])
+      const entries = await engine.journal(created.id)
+      const claim = entries.find(isClaimedEntry)!
+      expect([...State.parse(claim.state)]).toEqual([2n, 1n])
+      expect(
+        entries.find((entry) => entry.entry === 'completed')?.delta,
+      ).toEqual([])
+      expect((await replayGuard(type, claim)).matches).toBe(true)
+    })
+
+    it.each(['handler', 'commit callback'])(
+      'honors retries when an application %s throws SerializationError',
+      async (stage) => {
+        const f = await factory()
+        let runs = 0
+        const type = define([
+          defineStep({
+            name: 'retry-encoding',
+            retry: { maxAttempts: 2, delayMs: 0 },
+            handler: async (s, ctx) => {
+              runs += 1
+              if (stage === 'handler' && ctx.attempt === 1)
+                serializeValue(new Map())
+              ctx.onCommit(async (tx) => {
+                await tx.record(`attempt ${ctx.attempt}`)
+                if (stage === 'commit callback' && ctx.attempt === 1)
+                  serializeValue(new Map())
+              })
+              return { ...s, count: s.count + 1 }
+            },
+          }),
+        ])
+        const engine = createEngine({ storage: f.storage, caseTypes: [type] })
+        const created = await engine.createCase(type.name, {})
+        const result = await engine.execute(created.id, 'retry-encoding', {
+          actor: null,
+        })
+        expect(result.attempts).toBe(2)
+        expect(runs).toBe(2)
+        expect((await engine.case(created.id)).state).toMatchObject({
+          count: 1,
+        })
+        expect(await f.records()).toEqual(['attempt 2'])
+        expect(
+          (await engine.journal(created.id)).map((entry) => entry.entry),
+        ).toEqual(['claimed', 'attempt-failed', 'completed'])
+      },
+    )
 
     it('lists registered cases with stable paging, filtering and the same validation as addressed reads', async () => {
       const f = await factory()

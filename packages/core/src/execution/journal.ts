@@ -59,7 +59,10 @@ export interface JournalEntry {
   readonly scopeKey: string | null
   /** The acting Actor, as supplied by the app. */
   readonly actor: unknown
-  /** The post-validation input; omitted journal fields default to null, explicit undefined is preserved. */
+  /**
+   * Validated input on engine-written claimed entries, including explicit undefined.
+   * Later lifecycle entries omit input evidence and default this field to null.
+   */
   readonly input: unknown
   /** The instant the claim's guard re-evaluation was made as of, on `claimed` entries. */
   readonly asOf: string | null

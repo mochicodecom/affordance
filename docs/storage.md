@@ -22,7 +22,7 @@ Import `EngineStorage`, its repository interfaces, `LifecyclePort`, and
 | Interface | Responsibility |
 | --- | --- |
 | `cases` | Create validated state, fetch raw records, list filtered pages. |
-| `execution` | Serialize case operations, persist claims and commit effects, maintain claim expiry and attempts. |
+| `execution` | Give case operations exclusive access, persist claims and commit effects, maintain claim expiry and attempts. |
 | `journal` | Read append-only evidence in ordinal order with filters. |
 | `correlations` | Register/replace by `(system, externalId)`, preserving registration identity; look up and list mappings. |
 | `deliveries` | Atomically acquire new or reopenable deliveries, settle outcomes, read dead letters. |
@@ -33,7 +33,7 @@ validation happens inside `execution.withCase`; adapters do not receive or own
 the case-type registry. Migration's temporary step definition follows the same
 core path.
 
-`withCase(caseId, callback)` must serialize the addressed case, invoke the
+`withCase(caseId, callback)` must give the callback exclusive access to the case, invoke the
 callback once, and atomically commit all its writes or roll them all back when
 it throws. Missing cases throw `CaseNotFoundError`. An optimistic implementation
 must report a serialization conflict rather than replay arbitrary callbacks.
@@ -81,15 +81,26 @@ value, claimed state snapshot, journaled actor and journaled input. Decode on al
 reads: addressed loads, lists, transactional loads, journal reads and migration
 candidate pages. Core schema-validates the decoded state before using it. Missing
 actor/input fields in a journal append default to null; explicitly supplied
-undefined is preserved. Non-claimed entries have no snapshot and return null.
-A claimed snapshot whose state is null or undefined still has its own encoded
-document.
+undefined is preserved. The engine records validated input on `claimed` entries;
+later entries omit that evidence and their input defaults to null. The actor is
+repeated on entries written by that execution, including explicit undefined.
+Non-claimed entries have no snapshot and return null. A claimed snapshot whose
+state is null or undefined still has its own encoded document. Use the entry kind
+to distinguish absent evidence from a recorded null or undefined value.
+
+A migration page returns each decoded state as `{ id, state }`. A row that cannot
+be decoded returns `{ id, error: SerializationError }` instead. Core includes
+that case in `failed` and reports progress before continuing through the remaining
+rows and pages, for both real and dry-run migrations. Adapter query failures still
+throw and stop the sweep; they must not be represented as individual bad rows.
 
 Complete state is saved independently of the delta. Current-state reads never
 need journal entries. `await replayGuard(definition, claimedEntry)` validates the
-already decoded complete snapshot, then reevaluates today's guard against that
-state, recorded actor and evaluation time. It supports asynchronous schemas;
-schema rejection produces an `unaddressable` replay result. Replay does not
+already decoded complete snapshot, then reevaluates today's guard against the
+schema's output (including its defaults and transformations), recorded actor and
+evaluation time. It supports asynchronous schemas. Schema rejection produces an
+`unaddressable` replay result with the validation message and issues; a validator
+that throws propagates its error. Replay does not
 read, compute or apply a delta and does not run handlers.
 
 Deltas are RFC 6902 JSON Patch operations comparing serialized documents. Paths
@@ -97,6 +108,10 @@ under `/json` describe value changes; paths under `/meta` describe runtime type
 changes, such as a string becoming a Date with identical text. Store the delta
 verbatim, without wrapping it in another serialization document. The completed
 entry and execution result contain the same delta. Arrays compare positionally.
+Diff encoding normalizes object key order: integer-index keys enumerate numerically,
+then other keys lexicographically. Comparison visits existing keys before emitting
+additions. This makes operation order deterministic; it does not impose an order
+on application state objects.
 
 For diffing only, Sets compare by structural membership, independent of insertion
 order. Members sort lexicographically by their serialized representation,
@@ -106,6 +121,8 @@ object identity itself is not journal evidence. Reordering equivalent membership
 produces no delta. Complete snapshots retain Set iteration order, so guards that
 inspect that order can reproduce their recorded decision. Repeated references
 are copied as independent values; reference identity is not part of the contract.
+Reference-equality metadata is omitted at every codec boundary, including nested
+reserved-key objects. Equal bigint values keep independent type annotations.
 
 Unsupported values throw `SerializationError` instead of being omitted, converted
 to null, or replaced with a marker. These include functions, symbols and symbol
@@ -118,11 +135,20 @@ and their delta paths address that encoded array. Null-prototype objects decode
 as plain objects. Invalid format versions and deserialization failures also throw
 `SerializationError`. An unsupported returned state fails the execution without
 retry, state changes or commit effects; an invalid actor/input prevents the claim
-transaction from committing.
+transaction from committing. Framework encoding failures during commit are
+non-retryable; a `SerializationError` raised by a handler or an application
+`onCommit` callback follows the step's retry policy.
+
+The public `SerializedValue`, `JsonValue` and `JsonObject` types are owned by core;
+JSON Patch values also use `JsonValue`. Encode and decode helpers accept an optional
+context string for diagnostics. Postgres supplies case IDs, journal row IDs and
+column names. Wrapped encoder/decoder failures include the original cause's
+message, so the journal preserves that detail along with the error name.
 
 The format uses [SuperJSON](https://github.com/flightcontrolhq/superjson) with a
-private instance and a supported-value check. Its built-in type metadata avoids
-maintaining a custom type codec. We also evaluated
+private instance and a supported-value check. SuperJSON supplies the Date, Set,
+bigint and undefined codecs; core adds the reserved-key object encoding described
+above. We also evaluated
 [fast-json-patch](https://github.com/Starcounter-Jack/JSON-Patch); the existing
 small comparer already handles JSON documents and JSON Pointer escaping, so
 serializing its inputs meets the evidence contract without another dependency.

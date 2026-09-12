@@ -48,7 +48,9 @@ export const listCases = async (
   const selected = rows.slice(0, options.limit)
   const last = selected.at(-1)
   return {
-    cases: selected.map((row) => toHandle(row, deserializeValue(row.state))),
+    cases: selected.map((row) =>
+      toHandle(row, deserializeValue(row.state, `case '${row.id}' state`)),
+    ),
     nextCursor:
       rows.length > options.limit && last !== undefined
         ? Buffer.from(

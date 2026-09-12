@@ -148,8 +148,8 @@ interface Claim<TCommit> {
 
 /**
  * Wraps a failure that must not be retried because retrying is guaranteed to
- * reproduce it: a handler returning a Case State its schema rejects, or a
- * commit refused because the claim is gone.
+ * reproduce it: state validation or a framework-owned encoding operation failed.
+ * Application callbacks keep their declared retry policy.
  */
 class NonRetryable extends Error {
   readonly reason: unknown
@@ -158,6 +158,15 @@ class NonRetryable extends Error {
     this.name = 'NonRetryable'
     this.reason = reason
   }
+}
+
+/** Classify only framework-owned encoding failures; application callbacks keep their retry policy. */
+const encodingFailure = (error: unknown, context: string): never => {
+  if (error instanceof SerializationError)
+    throw new NonRetryable(
+      new SerializationError(`${context}: ${error.message}`, { cause: error }),
+    )
+  throw error
 }
 
 const toJournalError = (error: unknown): JournalError =>
@@ -310,10 +319,14 @@ const commitExecution = async <TCommit>(
   dormancy: Dormancy | null,
   writes: readonly CommitEffect<TCommit>[],
 ): Promise<ExecutionResult> => {
-  // Both inputs are fixed before the transaction opens, so the deep diff —
-  // pure CPU over the whole state document — runs before case serialization
-  // begins, not while holding it.
-  const delta = diffState(claim.state, nextState)
+  // Encode and compare before acquiring the case's exclusive commit access.
+  const context = `case '${caseId}', step '${stepName}'`
+  let delta: StateDelta
+  try {
+    delta = diffState(claim.state, nextState)
+  } catch (error) {
+    encodingFailure(error, context)
+  }
   return port.withCase(caseId, async (tx) => {
     // The one check that makes a stale write impossible. Changing Case State
     // requires holding the claim, and taking the claim over replaces this ownership record
@@ -327,20 +340,24 @@ const commitExecution = async <TCommit>(
       throw new ClaimLostError(caseId, claim.executionId, holder)
     }
 
-    const updated = await tx.updateCaseState(nextState, dormancy)
+    const updated = await tx
+      .updateCaseState(nextState, dormancy)
+      .catch((error) => encodingFailure(error, context))
     await tx.applyEffects(writes)
 
-    const entry = await tx.appendEntry({
-      caseId,
-      executionId: claim.executionId,
-      entry: 'completed',
-      attempt,
-      step: stepName,
-      scopeKey: claim.scopeKey,
-      actor: claim.actor,
-      delta,
-      dormancy,
-    })
+    const entry = await tx
+      .appendEntry({
+        caseId,
+        executionId: claim.executionId,
+        entry: 'completed',
+        attempt,
+        step: stepName,
+        scopeKey: claim.scopeKey,
+        actor: claim.actor,
+        delta,
+        dormancy,
+      })
+      .catch((error) => encodingFailure(error, context))
     await tx.deleteClaim(claim.executionId)
 
     return {
@@ -485,9 +502,7 @@ export const runLifecycle = async <TCommit>(
         )
       } catch (error) {
         const fatal =
-          error instanceof NonRetryable ||
-          error instanceof ClaimLostError ||
-          error instanceof SerializationError
+          error instanceof NonRetryable || error instanceof ClaimLostError
         const cause = error instanceof NonRetryable ? error.reason : error
         const journalError = toJournalError(cause)
 
@@ -531,7 +546,8 @@ export const runLifecycle = async <TCommit>(
  * even a journal entry: the journal records Executions, and a refused claim
  * never became one.
  *
- * A handler that throws is retried per the step's retry policy (same
+ * A throwing handler or application commit callback follows the step's retry
+ * policy, including SerializationError thrown by app code (same
  * `executionId`, same claim, same starting state — nothing else can have
  * moved it), each failure journaled as `attempt-failed`. When the attempts
  * run out, a `failed` entry is journaled, the case is released, and

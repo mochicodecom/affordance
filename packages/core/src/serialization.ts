@@ -1,7 +1,17 @@
 /** Core's JSON storage format for complete documents and journal evidence. */
 import SuperJSON from 'superjson'
+import { thrownMessage } from './errors.js'
 
 const codec = new SuperJSON()
+
+// All codec calls, including nested reserved-key documents, use this boundary.
+// normalize removes shared object identity; equal bigint primitives still make
+// SuperJSON emit references, which are redundant with its per-path type tags.
+const serializeDocument = (value: unknown) => {
+  const document = codec.serialize(value)
+  if (document.meta) delete document.meta.referentialEqualities
+  return document
+}
 
 // SuperJSON reserves these property names. Encode such objects as entries so
 // ordinary JSON keys remain data, without assigning through a prototype setter.
@@ -14,7 +24,7 @@ codec.registerCustom(
         Object.hasOwn(value, key),
       ),
     serialize: (value) => {
-      const { json, meta } = codec.serialize(Object.entries(value))
+      const { json, meta } = serializeDocument(Object.entries(value))
       return { json, ...(meta === undefined ? {} : { meta }) }
     },
     deserialize: (value) =>
@@ -23,9 +33,24 @@ codec.registerCustom(
   'affordance-object',
 )
 
+/** JSON data produced by core's encoder; numeric values are finite. */
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | JsonObject
+
+export interface JsonObject {
+  readonly [key: string]: JsonValue
+}
+
 /** A complete value plus the metadata needed to restore its runtime types. */
-export type SerializedValue = ReturnType<typeof codec.serialize> & {
+export interface SerializedValue {
   readonly version: 1
+  readonly json: JsonValue
+  readonly meta?: JsonObject
 }
 
 /** A value cannot be recorded without losing information, or a stored document is invalid. */
@@ -39,7 +64,8 @@ export class SerializationError extends TypeError {
 /**
  * Copy supported values before passing them to the codec. This rejects silent
  * JSON losses and cycles, and treats repeated references as independent values.
- * Snapshots retain Set iteration order; only diff inputs sort Set members.
+ * Snapshots retain Set iteration order. Diff inputs sort object keys and Set
+ * members, making comparison independent of either insertion order.
  */
 const normalize = (
   value: unknown,
@@ -106,7 +132,7 @@ const normalize = (
       if (canonicalSets) {
         const keyed = members.map((member) => ({
           member,
-          key: JSON.stringify(codec.serialize(member)),
+          key: JSON.stringify(serializeDocument(member)),
         }))
         keyed.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
         return new Set(keyed.map(({ member }) => member))
@@ -147,40 +173,63 @@ const normalize = (
   }
 }
 
-const encode = (value: unknown, canonicalSets: boolean): SerializedValue => {
+const encode = (
+  value: unknown,
+  canonicalSets: boolean,
+  context: string,
+): SerializedValue => {
   try {
-    return { version: 1, ...codec.serialize(normalize(value, canonicalSets)) }
+    // SuperJSON's declaration allows undefined JSON leaves; supported values
+    // always encode those as null plus a type tag, as the format tests assert.
+    return {
+      version: 1,
+      ...serializeDocument(normalize(value, canonicalSets)),
+    } as SerializedValue
   } catch (cause) {
-    if (cause instanceof SerializationError) throw cause
-    throw new SerializationError('Could not serialize value', { cause })
+    throw new SerializationError(
+      `Could not encode ${context}: ${thrownMessage(cause)}`,
+      { cause },
+    )
   }
 }
 
 /** Encode a full snapshot, actor or input. Adapters persist this document as JSON. */
-export const serializeValue = (value: unknown): SerializedValue =>
-  encode(value, false)
+export const serializeValue = (
+  value: unknown,
+  context = 'value',
+): SerializedValue => encode(value, false, context)
 
 /** Serialize a comparison copy with unordered, structurally compared Set membership. */
-export const serializeForDiff = (value: unknown): SerializedValue =>
-  encode(value, true)
+export const serializeForDiff = (
+  value: unknown,
+  context: string,
+): SerializedValue => encode(value, true, context)
 
 /** Restore a complete stored document. Callers schema-validate state after decoding. */
-export const deserializeValue = (document: unknown): unknown => {
+export const deserializeValue = (
+  document: unknown,
+  context = 'value',
+): unknown => {
   try {
     if (
       typeof document !== 'object' ||
       document === null ||
       !('version' in document) ||
       document.version !== 1 ||
+      !('json' in document) ||
       !Object.hasOwn(document, 'json')
     )
       throw new SerializationError(
         'Invalid serialized value: expected a version 1 document',
       )
-    const restored = codec.deserialize(document as SerializedValue)
+    const restored = codec.deserialize(
+      document as Parameters<typeof codec.deserialize>[0],
+    )
     return normalize(restored, false)
   } catch (cause) {
-    if (cause instanceof SerializationError) throw cause
-    throw new SerializationError('Could not deserialize value', { cause })
+    throw new SerializationError(
+      `Could not decode ${context}: ${thrownMessage(cause)}`,
+      { cause },
+    )
   }
 }

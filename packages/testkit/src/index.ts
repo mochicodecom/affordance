@@ -32,10 +32,8 @@ export const testPool = (options: { readonly max?: number } = {}): pg.Pool => {
 }
 
 /**
- * Assert a record survives a JSON round-trip unchanged — the engine's
- * documented guarantee that its records are plain, serializable data,
- * named at the assertion site instead of spelled as a parse/stringify
- * incantation.
+ * Assert that JSON evidence, such as an encoded document or a delta, survives
+ * storage unchanged. Decoded runtime values require the core serializer first.
  */
 export const expectJsonRoundTrips = (value: unknown): void => {
   expect(JSON.parse(JSON.stringify(value))).toEqual(value)

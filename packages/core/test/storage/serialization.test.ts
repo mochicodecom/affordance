@@ -10,6 +10,56 @@ const roundTrip = (value: unknown) =>
   deserializeValue(JSON.parse(JSON.stringify(serializeValue(value))))
 
 describe('complete value serialization', () => {
+  it('pins the version 1 typed document format independently of the serializer', () => {
+    // A format change must be deliberate: update the version if it changes the decoding contract.
+    const value = {
+      date: new Date(0),
+      set: new Set([5n, 1n]),
+      big: 5n,
+      unset: undefined,
+      reserved: { constructor: 5n },
+    }
+    const document = {
+      version: 1,
+      json: {
+        date: '1970-01-01T00:00:00.000Z',
+        set: ['5', '1'],
+        big: '5',
+        unset: null,
+        reserved: {
+          json: [['constructor', '5']],
+          meta: { values: { '0.1': ['bigint'] }, v: 1 },
+        },
+      },
+      meta: {
+        values: {
+          date: ['Date'],
+          set: ['set', { '0': ['bigint'], '1': ['bigint'] }],
+          big: ['bigint'],
+          unset: ['undefined'],
+          reserved: [['custom', 'affordance-object']],
+        },
+        v: 1,
+      },
+    }
+    expect(serializeValue(value)).toStrictEqual(document)
+    deepStrictEqual(
+      deserializeValue(JSON.parse(JSON.stringify(document))),
+      value,
+    )
+  })
+
+  it.each<{ value: unknown }>([
+    { value: { a: 5n, b: 5n } },
+    { value: { constructor: { a: 5n, b: 5n } } },
+    { value: { outer: { constructor: { prototype: { a: 5n, b: 5n } } } } },
+  ])('omits reference metadata at every codec boundary', ({ value }) => {
+    expect(JSON.stringify(serializeValue(value))).not.toContain(
+      'referentialEqualities',
+    )
+    deepStrictEqual(roundTrip(value), value)
+  })
+
   it('restores nested runtime types and retains Set iteration order without deltas', () => {
     const value = {
       rows: [{ date: new Date(123), amount: 9007199254740993n }],
@@ -142,4 +192,45 @@ describe('complete value serialization', () => {
   ])('rejects invalid stored documents: %s', (document) => {
     expect(() => deserializeValue(document)).toThrow(SerializationError)
   })
+})
+
+it('preserves distinct Set members with identical contents in complete snapshots', () => {
+  const restored = roundTrip(new Set([{ a: 1 }, { a: 1 }])) as Set<{
+    a: number
+  }>
+  expect(restored.size).toBe(2)
+  const [first, second] = restored
+  expect(first).toEqual(second)
+  expect(first).not.toBe(second)
+})
+
+it('includes the document name and original cause when the encoder itself fails', () => {
+  const cause = new RangeError('object inspection failed')
+  const value = new Proxy(
+    {},
+    {
+      ownKeys: () => {
+        throw cause
+      },
+    },
+  )
+  expect(() => serializeValue(value, 'handler state')).toThrow(
+    'Could not encode handler state: object inspection failed',
+  )
+  try {
+    serializeValue(value)
+  } catch (error) {
+    expect(error).toMatchObject({ name: 'SerializationError', cause })
+  }
+})
+
+it.each([
+  { json: [], meta: { values: ['map'], v: 1 } },
+  { json: '/x/', meta: { values: ['regexp'], v: 1 } },
+  { json: { name: 'Error', message: 'x' }, meta: { values: ['Error'], v: 1 } },
+  { json: 'https://example.com', meta: { values: ['URL'], v: 1 } },
+])('rejects decoded runtime types outside the storage contract', (document) => {
+  expect(() => deserializeValue({ version: 1, ...document })).toThrow(
+    SerializationError,
+  )
 })

@@ -103,6 +103,30 @@ describe('diffState', () => {
     expectJsonRoundTrips(delta)
   })
 
+  it('records only the changed bigint even when another field held the same value', () => {
+    expect(
+      diffState({ total: 5n, count: 5n }, { total: 6n, count: 5n }),
+    ).toEqual([{ op: 'replace', path: '/json/total', value: '6' }])
+    expect(
+      diffState(
+        { constructor: { a: 5n, b: 5n } },
+        { constructor: { a: 6n, b: 5n } },
+      ),
+    ).toEqual([{ op: 'replace', path: '/json/json/0/1/a', value: '6' }])
+  })
+
+  it('orders existing object keys deterministically before additions', () => {
+    expect(
+      diffState({ z: 0, b: 0, 10: 0, 2: 0 }, { 2: 1, 10: 1, b: 1, z: 1, a: 1 }),
+    ).toEqual([
+      { op: 'replace', path: '/json/2', value: 1 },
+      { op: 'replace', path: '/json/10', value: 1 },
+      { op: 'replace', path: '/json/b', value: 1 },
+      { op: 'replace', path: '/json/z', value: 1 },
+      { op: 'add', path: '/json/a', value: 1 },
+    ])
+  })
+
   it('is empty when nothing changed', () => {
     const state = {
       purchase: { address: '12 Mochi Lane', target: 1 },

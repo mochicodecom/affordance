@@ -24,7 +24,8 @@
 import type { GuardEvaluation } from '../guards/index.js'
 import type { AnyCaseType } from '../model/index.js'
 import { addressTarget, evaluateTarget } from '../model/index.js'
-import { resolveStoredState } from '../store/resolve.js'
+import { CaseStateValidationError } from '../store/errors.js'
+import { validateCaseState } from '../store/resolve.js'
 import { jsonEqual } from './delta.js'
 import type { ClaimedJournalEntry } from './journal.js'
 
@@ -50,7 +51,10 @@ export interface GuardReplay {
    * they could not — the strongest form of drift. `null` when `reproduced`
    * is present.
    */
-  readonly unaddressable: { readonly reason: string } | null
+  readonly unaddressable: {
+    readonly reason: string
+    readonly issues?: CaseStateValidationError['issues']
+  } | null
 }
 
 /**
@@ -58,7 +62,8 @@ export interface GuardReplay {
  * the entry recorded. Only `claimed` entries carry an evaluation to
  * reproduce, and the parameter type says so — narrow a read entry with
  * `isClaimedEntry` first. The adapter has already decoded the full snapshot;
- * replay validates it with today's schema before addressing or evaluating guards.
+ * replay validates it with today's schema and uses that schema's output,
+ * including defaults and transformations, for addressing and guard evaluation.
  * Async schemas make this function asynchronous. Schema rejection is reported
  * as unaddressable; a validator that throws still propagates its error.
  */
@@ -73,20 +78,28 @@ export const replayGuard = async <TCommit>(
     asOf: entry.asOf,
     recorded: entry.guard,
   }
-  const snapshot = await resolveStoredState(definition, entry.state)
-  if (snapshot === null) {
+  let state: unknown
+  try {
+    state = await validateCaseState(
+      definition,
+      entry.state,
+      `recorded state for execution '${entry.executionId}'`,
+    )
+  } catch (error) {
+    if (!(error instanceof CaseStateValidationError)) throw error
     return {
       ...identity,
       reproduced: null,
       matches: false,
       unaddressable: {
-        reason: 'Recorded state does not satisfy the current state schema',
+        reason: error.message,
+        issues: error.issues,
       },
     }
   }
   const address = addressTarget(
     definition,
-    snapshot.state,
+    state,
     entry.step,
     entry.scopeKey ?? undefined,
   )

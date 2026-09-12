@@ -73,6 +73,6 @@ Journal deltas compare serialized values and type metadata: value paths begin
 with `/json`, and runtime type changes can affect `/meta`. Sets compare by
 structural membership regardless of insertion order; complete snapshots retain
 iteration order. `replayGuard` is asynchronous because it schema-validates the
-restored full snapshot before guard reevaluation. Neither loading nor replay
-depends on deltas. See the [storage contract](../../docs/storage.md#serialization-contract)
+restored full snapshot and evaluates guards against the schema's output. Neither loading nor replay
+depends on deltas. See the [storage contract](https://github.com/mochicodecom/affordance/blob/main/docs/storage.md#serialization-contract)
 for adapter requirements and unsupported values that throw `SerializationError`.

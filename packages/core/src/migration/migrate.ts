@@ -37,7 +37,7 @@ import type { ExecutionEnvironment, StateDelta } from '../execution/index.js'
 import { diffState, runAsSystem } from '../execution/index.js'
 import type { AnyCaseType, StepDefinition } from '../model/index.js'
 import { step } from '../model/index.js'
-import type { EngineStorage } from '../storage.js'
+import type { EngineStorage, MigrationCandidate } from '../storage.js'
 import { resolveStoredState } from '../store/index.js'
 
 /** The synthetic step name a migration executes under — its journal marker. */
@@ -193,11 +193,12 @@ export const migrate = async <TCommit>(
   let cursor: string | null = null
 
   /** One candidate's verdict, with early returns — no outcome threading. */
-  const runOne = async (candidate: {
-    readonly id: string
-    readonly state: unknown
-  }): Promise<Pick<MigrationProgress, 'outcome' | 'delta' | 'error'>> => {
+  const runOne = async (
+    candidate: MigrationCandidate,
+  ): Promise<Pick<MigrationProgress, 'outcome' | 'delta' | 'error'>> => {
     try {
+      if (candidate.error !== undefined)
+        return { outcome: 'failed', delta: [], error: candidate.error }
       if (dryRun) {
         // The transform is pure, so "what would this become" needs no
         // claim, no lock and no write — and leaves no marker behind.

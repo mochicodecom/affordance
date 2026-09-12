@@ -41,25 +41,31 @@ type JournalRow = {
   recorded_at: Date
 }
 
-const toEntry = (row: JournalRow): JournalEntry => ({
-  ordinal: Number(row.ordinal),
-  id: row.id,
-  caseId: row.case_id,
-  executionId: row.execution_id,
-  entry: row.entry as JournalEntryType,
-  attempt: row.attempt,
-  step: row.step,
-  scopeKey: row.scope_key,
-  actor: deserializeValue(row.actor),
-  input: deserializeValue(row.input),
-  asOf: row.as_of === null ? null : row.as_of.toISOString(),
-  guard: row.guard,
-  state: row.entry === 'claimed' ? deserializeValue(row.state) : null,
-  delta: row.delta,
-  dormancy: row.dormancy as 'ended' | 'reopened' | null,
-  error: row.error,
-  recordedAt: row.recorded_at.toISOString(),
-})
+const toEntry = (row: JournalRow): JournalEntry => {
+  const context = `journal '${row.id}' for case '${row.case_id}'`
+  return {
+    ordinal: Number(row.ordinal),
+    id: row.id,
+    caseId: row.case_id,
+    executionId: row.execution_id,
+    entry: row.entry as JournalEntryType,
+    attempt: row.attempt,
+    step: row.step,
+    scopeKey: row.scope_key,
+    actor: deserializeValue(row.actor, `${context} actor`),
+    input: deserializeValue(row.input, `${context} input`),
+    asOf: row.as_of === null ? null : row.as_of.toISOString(),
+    guard: row.guard,
+    state:
+      row.entry === 'claimed'
+        ? deserializeValue(row.state, `${context} state`)
+        : null,
+    delta: row.delta,
+    dormancy: row.dormancy as 'ended' | 'reopened' | null,
+    error: row.error,
+    recordedAt: row.recorded_at.toISOString(),
+  }
+}
 
 /** Append one entry. Inserts only — journal rows are never updated or deleted. */
 export const appendEntry = async (
@@ -67,6 +73,7 @@ export const appendEntry = async (
   input: JournalEntryInput,
 ): Promise<JournalEntry> => {
   const entry = projectEntry(input)
+  const context = `journal '${entry.entry}' for case '${entry.caseId}', step '${entry.step}', execution '${entry.executionId}'`
   const { rows } = await db.query<JournalRow>(
     `insert into ${JOURNAL}
        (id, case_id, execution_id, entry, attempt, step, scope_key, actor, input, as_of, guard, state, delta, dormancy, error)
@@ -80,12 +87,12 @@ export const appendEntry = async (
       entry.attempt,
       entry.step,
       entry.scopeKey,
-      JSON.stringify(serializeValue(entry.actor)),
-      JSON.stringify(serializeValue(entry.input)),
+      JSON.stringify(serializeValue(entry.actor, `${context} actor`)),
+      JSON.stringify(serializeValue(entry.input, `${context} input`)),
       entry.asOf,
       JSON.stringify(entry.guard),
       entry.entry === 'claimed'
-        ? JSON.stringify(serializeValue(entry.state))
+        ? JSON.stringify(serializeValue(entry.state, `${context} state`))
         : null,
       JSON.stringify(entry.delta),
       entry.dormancy,

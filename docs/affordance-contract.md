@@ -145,7 +145,10 @@ availability and that execution's journal entries:
 ```
 
 Unscoped execution descriptors use `scopeKey: null`. Execution responses include
-the delta, not a full state snapshot or guard evaluation.
+the delta, not a full state snapshot or guard evaluation. Delta paths address the
+[serialized state document](storage.md#serialization-contract): `/json` contains
+values and `/meta` contains type metadata. The delta is journal evidence and is
+not a patch to apply to an HTTP case payload.
 
 ```mermaid
 sequenceDiagram

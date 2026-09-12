@@ -143,8 +143,9 @@ and return a new document, and external effects should deduplicate on
 `ctx.executionId`. Separate execute calls have separate IDs; deduplication
 across them needs an application-level key.
 
-Invalid returned state, unsupported serialized values and lost claim ownership fail without retry. Other
-handler or commit failures retry according to the step's policy. When retries
+Invalid returned state, framework encoding failures and lost claim ownership fail
+without retry. Application handler and commit callback failures follow the step's
+retry policy, including SerializationError raised by those callbacks. When retries
 are exhausted, the execution records failure and releases its claim.
 
 A process crash stops heartbeats. A later claimant can take over an expired
@@ -181,7 +182,7 @@ order. Complete snapshots retain Set iteration order.
 Reading current state loads its complete stored document. To explain a past
 execution, read its recorded evidence. `await replayGuard(definition, entry)`
 validates the decoded complete claim-time snapshot before reevaluating today's
-guard against it. It reports differences without reading or applying deltas,
+guard against the schema's output, including defaults and transformations. It reports differences without reading or applying deltas,
 rerunning handlers, or changing the original record.
 
 ## Long-running work becomes state plus later events
