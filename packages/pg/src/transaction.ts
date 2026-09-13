@@ -7,6 +7,13 @@ export class CommitOutcomeUnknownError extends Error {
     this.name = 'CommitOutcomeUnknownError'
   }
 }
+/** PostgreSQL acknowledged that the transaction rolled back instead of committing. */
+export class TransactionRolledBackError extends Error {
+  constructor() {
+    super('Database transaction rolled back instead of committing')
+    this.name = 'TransactionRolledBackError'
+  }
+}
 export const withTransaction = async <T>(
   db: DatabaseAccess,
   fn: (tx: Transaction) => Promise<T>,
@@ -47,13 +54,20 @@ const runTransaction = async <T>(
     throw error
   }
   active = false
+  let command: string
   try {
-    await handle.query('commit')
+    const acknowledgment = await handle.query('commit')
+    command = acknowledgment.command
   } catch (cause) {
     await handle.query('rollback').catch(() => undefined)
     if (isConfirmedCommitRejection(cause)) throw cause
     throw new CommitOutcomeUnknownError({ cause })
   }
+  if (command === 'ROLLBACK') throw new TransactionRolledBackError()
+  if (command !== 'COMMIT')
+    throw new CommitOutcomeUnknownError({
+      cause: new Error(`Unexpected COMMIT acknowledgment: ${command}`),
+    })
   return result
 }
 

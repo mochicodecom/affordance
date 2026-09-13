@@ -11,4 +11,8 @@ export type {
 export { queryableOf } from './queryable.js'
 export type { PgDomainBinding, PgStorage, PgStorageOptions } from './storage.js'
 export { createPgStorage } from './storage.js'
-export { CommitOutcomeUnknownError, withTransaction } from './transaction.js'
+export {
+  CommitOutcomeUnknownError,
+  TransactionRolledBackError,
+  withTransaction,
+} from './transaction.js'

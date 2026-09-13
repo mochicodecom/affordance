@@ -1,5 +1,6 @@
 /** Application-owned relational storage. All writers lock the purchase parent first. */
 import { randomUUID } from 'node:crypto'
+import { validateAgainstSchema } from '@affordance/core/storage'
 import type { Queryable, Transaction } from '@affordance/pg'
 import { type Buyer, type Purchase, PurchaseState, type Wire } from './state.js'
 
@@ -17,6 +18,7 @@ export const bootstrapPurchases = async (q: Queryable): Promise<void> => {
       position bigserial, name text not null, committed double precision,
       verification_status text not null default 'none', check_id text, flagged_at text,
       hits text[] not null default '{}', escalated_at text,
+      agreement_present boolean not null default false,
       envelope_id text, signed boolean not null default false, signed_at text,
       primary key (purchase_id,id)
     );
@@ -52,7 +54,7 @@ export const loadPurchase = async (
     notes,
     coalesce((select json_agg(json_build_object('id',b.id,'name',b.name,'committed',b.committed,
       'verification',json_build_object('status',b.verification_status,'checkId',b.check_id,'flaggedAt',b.flagged_at,'hits',b.hits,'escalatedAt',b.escalated_at),
-      'agreement',case when b.envelope_id is null then null else json_build_object('envelopeId',b.envelope_id,'signed',b.signed,'signedAt',b.signed_at) end
+      'agreement',case when b.agreement_present then json_build_object('envelopeId',b.envelope_id,'signed',b.signed,'signedAt',b.signed_at) else null end
     ) order by b.position) from purchase_buyers b where b.purchase_id = p.id),'[]') as buyers,
     coalesce((select json_agg(json_build_object('id',w.id,'buyerId',w.buyer_id,'amount',w.amount,'fromAccount',w.from_account,'receivedAt',w.received_at,'outcome',w.outcome,'resolution',w.resolution) order by w.position)
       from purchase_wires w where w.purchase_id = p.id),'[]') as wires
@@ -129,7 +131,7 @@ export const purchaseRepositories = (tx: Transaction, id: string) => {
       ),
     agreement: (buyer: string, envelopeId: string) =>
       update(
-        'update purchase_buyers set envelope_id=$3,signed=false,signed_at=null where purchase_id=$1 and id=$2',
+        'update purchase_buyers set agreement_present=true,envelope_id=$3,signed=false,signed_at=null where purchase_id=$1 and id=$2',
         [buyer, envelopeId],
       ),
     sign: (buyer: string, at: string) =>
@@ -175,7 +177,7 @@ export const insertPurchase = async (
   tx: Transaction,
   value: unknown,
 ): Promise<string> => {
-  const s = PurchaseState.parse(value)
+  const s = await validateAgainstSchema(PurchaseState, value, 'initial state')
   const id = `purchase:${randomUUID()}`
   await tx.query(
     `insert into house_purchases (id,address,target,closed_at,deed_recorded_at,offer_accepted_at,inspection_report_id,escrow_status,application_id,account_id,funding_amount,funding_issued_at,funding_reference,notes)
@@ -203,8 +205,8 @@ export const insertPurchase = async (
 }
 const insertBuyer = async (tx: Transaction, id: string, b: Buyer) => {
   await tx.query(
-    `insert into purchase_buyers (purchase_id,id,name,committed,verification_status,check_id,flagged_at,hits,escalated_at,envelope_id,signed,signed_at)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    `insert into purchase_buyers (purchase_id,id,name,committed,verification_status,check_id,flagged_at,hits,escalated_at,agreement_present,envelope_id,signed,signed_at)
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [
       id,
       b.id,
@@ -215,6 +217,7 @@ const insertBuyer = async (tx: Transaction, id: string, b: Buyer) => {
       b.verification.flaggedAt,
       b.verification.hits,
       b.verification.escalatedAt,
+      b.agreement !== null,
       b.agreement?.envelopeId ?? null,
       b.agreement?.signed ?? false,
       b.agreement?.signedAt ?? null,

@@ -224,7 +224,7 @@ package. The adapter maps it to an HTTP status:
 | `404` | `not-found` | A requested case, case type, or route cannot be resolved. |
 | `409` | `step-not-available` | Current guard failed; includes `possible`, `permitted`, and `unmet`. |
 | `422` | `invalid-input` | Step input failed its schema; includes `issues`. |
-| `500` | `execution-failed` | Handler or commit failed, including exhausted retries or invalid returned state. |
+| `500` | `execution-failed` | The atomic operation failed, including handler errors or invalid reloaded state. |
 | `500` | `invalid-state` | Case state failed validation, including initial or stored state. |
 
 For example, an officer trying to close before Alice commits receives:

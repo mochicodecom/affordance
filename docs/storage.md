@@ -162,6 +162,9 @@ when it completed. A new attempt after confirmed non-commit reloads current stat
 and reevaluates its guard. Request-level deduplication and external effect recovery
 remain the application's responsibility. `withTransaction` exposes
 `CommitOutcomeUnknownError` for application-owned transactions.
+If Postgres acknowledges `COMMIT` with a `ROLLBACK` command after a caught SQL
+error, `withTransaction` throws `TransactionRolledBackError` instead of returning
+the callback's result. Only a `COMMIT` acknowledgment reports success.
 
 ## Evidence and serialization
 

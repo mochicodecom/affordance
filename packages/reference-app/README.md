@@ -151,6 +151,13 @@ framework stores case references and execution evidence. Handlers use targeted
 repository operations inside a short transaction. Mock provider dispatch runs
 after that transaction in the application wrapper; it is a demonstration, not a
 durable integration subsystem. Adopters supply their own dispatch and recovery.
+If dispatch throws, the demo logs the provider error with the committed case and
+execution IDs and returns the successful domain execution. It does not retry the
+provider automatically. Dispatch uses the scope recorded in that execution.
 
-This version requires a fresh framework schema. Use `DATABASE_URL` for a new
-database when an older JSONB installation exists; bootstrap never resets it.
+Agreement presence is stored independently of its optional envelope ID, so a
+manual signature remains visible to guards even without a provider envelope.
+
+This version requires fresh framework and demo domain schemas. Use `DATABASE_URL`
+for a new database when an older installation exists; bootstrap never resets it
+or migrates application tables.

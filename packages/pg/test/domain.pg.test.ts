@@ -14,6 +14,7 @@ import {
   type PoolLike,
   type Queryable,
   type Transaction,
+  TransactionRolledBackError,
   withTransaction,
 } from '../src/index.js'
 
@@ -288,6 +289,41 @@ describe('Postgres domain mechanics', () => {
 })
 
 describe('commit acknowledgment and transaction lifetime', () => {
+  it('rejects an attachment result when a caught SQL error makes COMMIT roll back', async () => {
+    const f = await fixture(domainDefinition(randomUUID()))
+    const reference = randomUUID()
+    await expect(
+      withTransaction({ pool }, async (tx) => {
+        await tx.query('insert into contract_purchases values ($1,42)', [
+          reference,
+        ])
+        await tx.query("insert into contract_buyers values ($1,'a','Alice')", [
+          reference,
+        ])
+        const attached = await f.storage.attachCase(tx, f.binding, reference)
+        // A caller may catch an optional write failure; PostgreSQL still aborts
+        // the transaction, and COMMIT acknowledges ROLLBACK without throwing.
+        await tx
+          .query('insert into contract_purchases values ($1,42)', [reference])
+          .catch(() => {})
+        return attached
+      }),
+    ).rejects.toBeInstanceOf(TransactionRolledBackError)
+    expect(
+      (
+        await pool.query('select id from contract_purchases where id=$1', [
+          reference,
+        ])
+      ).rows,
+    ).toEqual([])
+    expect(
+      (
+        await pool.query('select id from affordance.cases where reference=$1', [
+          reference,
+        ])
+      ).rows,
+    ).toEqual([])
+  })
   it('reports a deferred constraint rejection at COMMIT as a known rollback', async () => {
     await expect(
       withTransaction({ pool }, async (tx) => {

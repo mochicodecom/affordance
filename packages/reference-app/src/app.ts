@@ -24,7 +24,12 @@ import {
 
 import { readFile } from 'node:fs/promises'
 import type { Engine } from '@affordance/core'
-import { CaseNotFoundError, createEngine, routedStep } from '@affordance/core'
+import {
+  CaseNotFoundError,
+  createEngine,
+  routedStep,
+  UnknownCaseTypeError,
+} from '@affordance/core'
 import type { DatabaseAccess } from '@affordance/pg'
 import {
   bootstrap,
@@ -370,23 +375,37 @@ export const createPurchaseApp = async (
     execute: async (id, step, executeOptions) => {
       const result = await atomicEngine.execute(id, step, executeOptions)
       const state = result.state as Purchase
-      const buyer = state.buyers.find((b) => b.id === executeOptions.scopeKey)
-      if (step === 'open-escrow')
-        services.applyForEscrowAccount({
-          address: state.purchase.address,
-          requestId: state.escrow.applicationId!,
+      const buyer = state.buyers.find((b) => b.id === result.scopeKey)
+      try {
+        if (result.step === 'open-escrow')
+          services.applyForEscrowAccount({
+            address: state.purchase.address,
+            requestId: state.escrow.applicationId!,
+          })
+        if (result.step === 'start-verification' && buyer)
+          services.startVerification({
+            buyerId: buyer.id,
+            requestId: buyer.verification.checkId!,
+            ...(buyer.name.includes('(hit)')
+              ? { hits: ['sanctions:OFAC'] }
+              : {}),
+          })
+        if (result.step === 'send-agreement' && buyer)
+          services.sendEnvelope({
+            buyerId: buyer.id,
+            requestId: buyer.agreement!.envelopeId!,
+          })
+      } catch (error) {
+        // Demo diagnostics are separate from the confirmed domain result.
+        // Production dispatch and recovery belong to the adopter.
+        console.error('Provider dispatch failed after execution committed', {
+          caseId: result.caseId,
+          executionId: result.executionId,
+          step: result.step,
+          scopeKey: result.scopeKey,
+          error,
         })
-      if (step === 'start-verification' && buyer)
-        services.startVerification({
-          buyerId: buyer.id,
-          requestId: buyer.verification.checkId!,
-          ...(buyer.name.includes('(hit)') ? { hits: ['sanctions:OFAC'] } : {}),
-        })
-      if (step === 'send-agreement' && buyer)
-        services.sendEnvelope({
-          buyerId: buyer.id,
-          requestId: buyer.agreement!.envelopeId!,
-        })
+      }
       return result
     },
   }
@@ -398,7 +417,7 @@ export const createPurchaseApp = async (
       ...engine,
       createCase: async (type, state) => {
         if (type !== HOUSE_PURCHASE)
-          throw new TypeError('unknown purchase type')
+          throw new UnknownCaseTypeError(type, [HOUSE_PURCHASE])
         return withTransaction(options.db, async (tx) => {
           const reference = await insertPurchase(tx, state)
           return storage.attachCase(tx, caseTypes[0]!, reference)
