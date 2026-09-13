@@ -29,8 +29,9 @@ import type {
   ScopedConditionContext,
   StepDefinition,
 } from '@affordance/core'
-import { actor, anyOf, stepsOf } from '@affordance/core'
+import { actor, anyOf, repositories, stepsOf } from '@affordance/core'
 import { z } from 'zod'
+import type { PurchaseRepositories } from './repository.js'
 import type { MockServices } from './services.js'
 import type { Buyer, Purchase, PurchaseActor, Wire } from './state.js'
 import {
@@ -39,7 +40,6 @@ import {
   hasRole,
   PurchaseState,
   registeredAccountOf,
-  updateBuyer,
   wireSettled,
 } from './state.js'
 
@@ -67,7 +67,11 @@ type BuyerCtx = ScopedConditionContext<Buyer, PurchaseActor>
  * and below still annotate: they are defined outside a step call, where
  * there is no context to infer from.)
  */
-const purchaseStep = stepsOf(PurchaseState, actor<PurchaseActor>())
+const purchaseStep = stepsOf(
+  PurchaseState,
+  actor<PurchaseActor>(),
+  repositories<PurchaseRepositories>(),
+)
 
 const isOrganizer = (_s: Purchase, ctx: Ctx) => ({
   ok: hasRole(ctx.actor, 'organizer'),
@@ -143,11 +147,10 @@ const acceptOffer = purchaseStep({
   title: 'Seller accepted our offer',
   requires: { offerNotYetAccepted, purchaseOpen },
   permits: { isOrganizer },
-  handler: async (s) => ({
-    ...s,
-    property: { ...s.property, offerAcceptedAt: '2026-08-01T09:00:00.000Z' },
-    notes: [...s.notes, 'offer accepted'],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.acceptOffer('2026-08-01T09:00:00.000Z')
+    await ctx.repos.note('offer accepted')
+  },
 })
 
 const obtainInspectionReport = purchaseStep({
@@ -155,11 +158,10 @@ const obtainInspectionReport = purchaseStep({
   title: 'Obtain the inspection report',
   requires: { offerAccepted, noInspectionReportYet },
   permits: { isOrganizer },
-  handler: async (s) => ({
-    ...s,
-    property: { ...s.property, inspectionReportId: 'insp_20260801' },
-    notes: [...s.notes, 'inspection report obtained'],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.inspect('insp_20260801')
+    await ctx.repos.note('inspection report obtained')
+  },
 })
 
 /**
@@ -167,38 +169,30 @@ const obtainInspectionReport = purchaseStep({
  * The account is not open when this commits — it is *applied for*, which is a
  * different fact and is the one the state records.
  */
-const openEscrow = (services: PurchaseProviders) =>
+const openEscrow = () =>
   purchaseStep({
     name: 'open-escrow',
     title: 'Open escrow',
     requires: { inspectionReportObtained, escrowNotYetApplied },
     permits: { isOrganizer },
-    handler: async (s, ctx) => {
-      const applicationId = services.applyForEscrowAccount({
-        address: s.purchase.address,
-      })
-      // The escrow company will quote this application id for the account
-      // opening *and* for every wire that lands in it, so one correlation
-      // covers both; each event names the step it wants.
+    handler: async (ctx) => {
+      const applicationId = `app_${randomUUID()}`
+      await ctx.repos.requestEscrow(applicationId)
       ctx.correlate({
         system: 'escrow',
         externalId: applicationId,
         scopeKey: null,
         step: 'record-escrow-account',
-        metadata: { address: s.purchase.address },
+        metadata: { address: ctx.state.purchase.address },
       })
-      return {
-        ...s,
-        escrow: { ...s.escrow, status: 'requested', applicationId },
-        notes: [...s.notes, 'escrow account requested'],
-      }
+      await ctx.repos.note('escrow account requested')
     },
   })
 
-export const createPurchaseSetup = (services: PurchaseProviders) => [
+export const createPurchaseSetup = () => [
   acceptOffer,
   obtainInspectionReport,
-  openEscrow(services),
+  openEscrow(),
 ]
 
 /** Materializes the escrow company's answer — routed here by the event, not by a poll. */
@@ -215,11 +209,10 @@ export const recordEscrowAccount = purchaseStep({
   },
   permits: { isIntegration },
   input: z.object({ accountId: z.string(), openedAt: z.string() }),
-  handler: async (s, ctx) => ({
-    ...s,
-    escrow: { ...s.escrow, status: 'open', accountId: ctx.input.accountId },
-    notes: [...s.notes, `escrow account ${ctx.input.accountId} opened`],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.recordEscrow(ctx.input.accountId)
+    await ctx.repos.note(`escrow account ${ctx.input.accountId} opened`)
+  },
 })
 
 // ---------------------------------------------------------------------------
@@ -237,26 +230,10 @@ export const inviteBuyer = purchaseStep({
   // identifiers (wire ids, account ids, envelopes) stay caller-supplied —
   // those are the providers' own correlation identity.
   input: z.object({ name: z.string() }),
-  handler: async (s, ctx) => ({
-    ...s,
-    buyers: [
-      ...s.buyers,
-      {
-        id: `buyer:${randomUUID()}`,
-        name: ctx.input.name,
-        committed: null,
-        verification: {
-          status: 'none',
-          checkId: null,
-          flaggedAt: null,
-          hits: [],
-          escalatedAt: null,
-        },
-        agreement: null,
-      },
-    ],
-    notes: [...s.notes, `${ctx.input.name} invited`],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.invite(ctx.input.name)
+    await ctx.repos.note(`${ctx.input.name} invited`)
+  },
 })
 
 export const recordCommitment = purchaseStep({
@@ -269,16 +246,13 @@ export const recordCommitment = purchaseStep({
   requires: { purchaseOpen },
   permits: { isThisBuyer },
   input: z.object({ amount: z.number().positive() }),
-  handler: async (s, ctx) => ({
-    ...updateBuyer(s, ctx.scopeKey, (b) => ({
-      ...b,
-      committed: ctx.input.amount,
-    })),
-    notes: [...s.notes, `${ctx.scopeKey} committed ${ctx.input.amount}`],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.commit(ctx.scopeKey, ctx.input.amount)
+    await ctx.repos.note(`${ctx.scopeKey} committed ${ctx.input.amount}`)
+  },
 })
 
-export const createStartVerification = (services: PurchaseProviders) =>
+export const createStartVerification = () =>
   purchaseStep({
     name: 'start-verification',
     title: 'Start identity verification',
@@ -290,24 +264,14 @@ export const createStartVerification = (services: PurchaseProviders) =>
       key: (b) => b.id,
     },
     permits: { isOrganizer },
-    handler: async (s, ctx) => {
-      // The demo's lever on the provider, keyed on the buyer's name:
-      // '(hit)' comes back flagged, putting the buyer in review — the
-      // escalation and enhanced-review branch can then be played live.
-      const flagged = ctx.scope.name.includes('(hit)')
-      const checkId = services.startVerification({
-        buyerId: ctx.scopeKey,
-        ...(flagged && { hits: ['sanctions:OFAC'] }),
-      })
+    handler: async (ctx) => {
+      const checkId = `chk_${randomUUID()}`
+      await ctx.repos.requestVerification(ctx.scopeKey, checkId)
       ctx.correlate({
         system: 'verify',
         externalId: checkId,
         step: 'record-verification-result',
       })
-      return updateBuyer(s, ctx.scopeKey, (b) => ({
-        ...b,
-        verification: { ...b.verification, status: 'pending', checkId },
-      }))
     },
   })
 
@@ -326,20 +290,15 @@ export const recordVerificationResult = purchaseStep({
     hits: z.array(z.string()).default([]),
     completedAt: z.string(),
   }),
-  handler: async (s, ctx) => ({
-    ...updateBuyer(s, ctx.scopeKey, (b) => ({
-      ...b,
-      verification: {
-        ...b.verification,
-        status: ctx.input.status,
-        hits: ctx.input.hits,
-        // When the hit put this buyer in review — kept as the record
-        // the escalation decision is made against.
-        flaggedAt: ctx.input.status === 'review' ? ctx.input.completedAt : null,
-      },
-    })),
-    notes: [...s.notes, `${ctx.scopeKey} verification ${ctx.input.status}`],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.verify(
+      ctx.scopeKey,
+      ctx.input.status,
+      ctx.input.hits,
+      ctx.input.status === 'review' ? ctx.input.completedAt : null,
+    )
+    await ctx.repos.note(`${ctx.scopeKey} verification ${ctx.input.status}`)
+  },
 })
 
 /**
@@ -358,17 +317,10 @@ export const escalateVerification = purchaseStep({
     key: (b) => b.id,
   },
   permits: { isEscrowOfficer },
-  handler: async (s, ctx) => ({
-    ...updateBuyer(s, ctx.scopeKey, (b) => ({
-      ...b,
-      verification: {
-        ...b.verification,
-        status: 'escalated',
-        escalatedAt: '2026-08-15T10:00:00.000Z',
-      },
-    })),
-    notes: [...s.notes, `${ctx.scopeKey} escalated to enhanced review`],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.escalate(ctx.scopeKey, '2026-08-15T10:00:00.000Z')
+    await ctx.repos.note(`${ctx.scopeKey} escalated to enhanced review`)
+  },
 })
 
 /** Enhanced review's outcome — the only way out of `escalated`, and a human's call. */
@@ -384,22 +336,17 @@ export const clearEnhancedReview = purchaseStep({
   },
   permits: { isEscrowOfficer },
   input: z.object({ cleared: z.boolean() }),
-  handler: async (s, ctx) => ({
-    ...updateBuyer(s, ctx.scopeKey, (b) => ({
-      ...b,
-      verification: {
-        ...b.verification,
-        status: ctx.input.cleared ? 'clear' : 'rejected',
-      },
-    })),
-    notes: [
-      ...s.notes,
-      `${ctx.scopeKey} enhanced review ${ctx.input.cleared ? 'cleared' : 'rejected'}`,
-    ],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.clear(ctx.scopeKey, ctx.input.cleared)
+    await ctx.repos.note(
+      ctx.scopeKey +
+        ' enhanced review ' +
+        (ctx.input.cleared ? 'cleared' : 'rejected'),
+    )
+  },
 })
 
-export const createSendAgreement = (services: PurchaseProviders) =>
+export const createSendAgreement = () =>
   purchaseStep({
     name: 'send-agreement',
     title: 'Send the purchase agreement',
@@ -415,17 +362,14 @@ export const createSendAgreement = (services: PurchaseProviders) =>
     },
     requires: { purchaseOpen },
     permits: { isOrganizer },
-    handler: async (s, ctx) => {
-      const envelopeId = services.sendEnvelope({ buyerId: ctx.scopeKey })
+    handler: async (ctx) => {
+      const envelopeId = `env_${randomUUID()}`
+      await ctx.repos.agreement(ctx.scopeKey, envelopeId)
       ctx.correlate({
         system: 'esign',
         externalId: envelopeId,
         step: 'record-signature',
       })
-      return updateBuyer(s, ctx.scopeKey, (b) => ({
-        ...b,
-        agreement: { envelopeId, signed: false, signedAt: null },
-      }))
     },
   })
 
@@ -445,17 +389,10 @@ export const recordSignature = purchaseStep({
   },
   permits: { isIntegration },
   input: z.object({ signedAt: z.string() }),
-  handler: async (s, ctx) => ({
-    ...updateBuyer(s, ctx.scopeKey, (b) => ({
-      ...b,
-      agreement: {
-        envelopeId: b.agreement?.envelopeId ?? null,
-        signed: true,
-        signedAt: ctx.input.signedAt,
-      },
-    })),
-    notes: [...s.notes, `${ctx.scopeKey} signed`],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.sign(ctx.scopeKey, ctx.input.signedAt)
+    await ctx.repos.note(`${ctx.scopeKey} signed`)
+  },
 })
 
 // ---------------------------------------------------------------------------
@@ -495,18 +432,17 @@ export const issueFundingCall = purchaseStep({
   },
   permits: { isOrganizer },
   input: z.object({ reference: z.string() }),
-  handler: async (s, ctx) => ({
-    ...s,
-    fundingCall: {
-      amount: committedBuyers(s).reduce(
+  handler: async (ctx) => {
+    await ctx.repos.funding(
+      committedBuyers(ctx.state).reduce(
         (total, b) => total + (b.committed ?? 0),
         0,
       ),
-      issuedAt: '2026-08-10T09:00:00.000Z',
-      reference: ctx.input.reference,
-    },
-    notes: [...s.notes, `funding call ${ctx.input.reference} issued`],
-  }),
+      '2026-08-10T09:00:00.000Z',
+      ctx.input.reference,
+    )
+    await ctx.repos.note(`funding call ${ctx.input.reference} issued`)
+  },
 })
 
 /**
@@ -539,8 +475,8 @@ export const recordWire = purchaseStep({
     fromAccount: z.string().default(''),
     receivedAt: z.string(),
   }),
-  handler: async (s, ctx) => {
-    const expected = buyerOf(s, ctx.input.buyerId)?.committed ?? null
+  handler: async (ctx) => {
+    const expected = buyerOf(ctx.state, ctx.input.buyerId)?.committed ?? null
     const outcome: Wire['outcome'] =
       ctx.input.fromAccount !== registeredAccountOf(ctx.input.buyerId)
         ? 'wrong-account'
@@ -549,22 +485,16 @@ export const recordWire = purchaseStep({
           : ctx.input.amount < expected
             ? 'short'
             : 'over'
-    return {
-      ...s,
-      wires: [
-        ...s.wires,
-        {
-          id: ctx.input.wireId,
-          buyerId: ctx.input.buyerId,
-          amount: ctx.input.amount,
-          fromAccount: ctx.input.fromAccount,
-          receivedAt: ctx.input.receivedAt,
-          outcome,
-          resolution: null,
-        },
-      ],
-      notes: [...s.notes, `wire ${ctx.input.wireId} recorded: ${outcome}`],
-    }
+    await ctx.repos.wire({
+      id: ctx.input.wireId,
+      buyerId: ctx.input.buyerId,
+      amount: ctx.input.amount,
+      fromAccount: ctx.input.fromAccount,
+      receivedAt: ctx.input.receivedAt,
+      outcome,
+      resolution: null,
+    })
+    await ctx.repos.note(`wire ${ctx.input.wireId} recorded: ${outcome}`)
   },
 })
 
@@ -578,7 +508,7 @@ const resolutionStep = (
     string,
     (s: Purchase, ctx: Ctx) => { ok: boolean; reason: string }
   >,
-): StepDefinition<Purchase, PurchaseActor> =>
+): StepDefinition<Purchase, PurchaseActor, PurchaseRepositories> =>
   purchaseStep({
     name,
     title,
@@ -589,13 +519,10 @@ const resolutionStep = (
       key: (w) => w.id,
     },
     permits,
-    handler: async (s, ctx) => ({
-      ...s,
-      wires: s.wires.map((w) =>
-        w.id === ctx.scopeKey ? { ...w, resolution } : w,
-      ),
-      notes: [...s.notes, `wire ${ctx.scopeKey} ${resolution}`],
-    }),
+    handler: async (ctx) => {
+      await ctx.repos.resolveWire(ctx.scopeKey, resolution)
+      await ctx.repos.note(`wire ${ctx.scopeKey} ${resolution}`)
+    },
   })
 
 // The resolutions split by kind of authority: returning or refunding money is
@@ -681,14 +608,10 @@ export const closePurchase = purchaseStep({
   title: 'Close the purchase',
   requires: closeConditions,
   permits: { isOrganizer },
-  handler: async (s, ctx) => {
-    // The outcome is state; `end()` is the dormancy annotation beside it.
+  handler: async (ctx) => {
+    await ctx.repos.close('2026-08-20T17:00:00.000Z')
+    await ctx.repos.note('purchase closed')
     ctx.end()
-    return {
-      ...s,
-      purchase: { ...s.purchase, closedAt: '2026-08-20T17:00:00.000Z' },
-      notes: [...s.notes, 'purchase closed'],
-    }
   },
 })
 
@@ -712,9 +635,8 @@ export const recordDeed = purchaseStep({
     }),
   },
   permits: { isOrganizer },
-  handler: async (s) => ({
-    ...s,
-    purchase: { ...s.purchase, deedRecordedAt: '2026-09-12T00:00:00.000Z' },
-    notes: [...s.notes, 'deed recorded'],
-  }),
+  handler: async (ctx) => {
+    await ctx.repos.recordDeed('2026-09-12T00:00:00.000Z')
+    await ctx.repos.note('deed recorded')
+  },
 })

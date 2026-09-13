@@ -1,29 +1,12 @@
-/**
- * The transaction seam.
- *
- * The claim and the commit are each one short transaction; the handler runs
- * between them, outside both — so no transaction is ever held open
- * across a handler's external calls. `withTransaction` is how the execution
- * lifecycle gets one, and it is also what a handler's `ctx.onCommit` writes
- * ride along inside.
- */
-
 import type { DatabaseAccess, Queryable, Transaction } from './queryable.js'
 import { withClient } from './queryable.js'
-
-/**
- * Run `fn` inside a transaction and hand it the handle to use — a checked-out
- * client when the caller brought a pool, the client itself when they brought
- * one (issuing `begin` on a *pool* would put each statement on a different
- * connection, so the distinction is not cosmetic). Which case applies is the
- * caller's declaration — {@link DatabaseAccess} — never sniffed from the
- * object.
- *
- * Commits on return, rolls back on throw, and always releases what it
- * checked out. A rollback that itself fails is swallowed: the original error
- * is what the caller needs, and a connection too broken to roll back is
- * discarded by the pool anyway.
- */
+/** The callback finished, but COMMIT was not acknowledged. Never blindly retry. */
+export class CommitOutcomeUnknownError extends Error {
+  constructor(options: ErrorOptions) {
+    super('Database commit outcome is unknown', options)
+    this.name = 'CommitOutcomeUnknownError'
+  }
+}
 export const withTransaction = async <T>(
   db: DatabaseAccess,
   fn: (tx: Transaction) => Promise<T>,
@@ -31,27 +14,42 @@ export const withTransaction = async <T>(
   if (!('pool' in db))
     return withClient(db.client, () => runTransaction(db.client, fn))
   const client = await db.pool.connect()
+  let discard = false
   try {
     return await runTransaction(client, fn)
+  } catch (error) {
+    discard = true
+    throw error
   } finally {
-    client.release()
+    client.release(discard)
   }
 }
-
 const runTransaction = async <T>(
   handle: Queryable,
   fn: (tx: Transaction) => Promise<T>,
 ): Promise<T> => {
-  // The one place the brand is applied: past the `begin` below, this handle
-  // really is inside a transaction.
-  const tx = handle as Transaction
-  await tx.query('begin')
+  await handle.query('begin')
+  let active = true
+  const tx = {
+    query: (...args: Parameters<Queryable['query']>) => {
+      if (!active) return Promise.reject(new Error('transaction is closed'))
+      return handle.query(...args)
+    },
+  } as Transaction
+  let result: T
   try {
-    const result = await fn(tx)
-    await tx.query('commit')
-    return result
+    result = await fn(tx)
   } catch (error) {
-    await tx.query('rollback').catch(() => undefined)
+    active = false
+    await handle.query('rollback').catch(() => undefined)
     throw error
   }
+  active = false
+  try {
+    await handle.query('commit')
+  } catch (cause) {
+    await handle.query('rollback').catch(() => undefined)
+    throw new CommitOutcomeUnknownError({ cause })
+  }
+  return result
 }

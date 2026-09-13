@@ -108,7 +108,7 @@ Tests use `app.settle()` to flush due events. A custom driver can use
 `services.start(engine)` to deliver on a timer; the served demo leaves delivery
 to the console.
 
-The journal lets you inspect the step, actor, scope, claim-time conditions, and
+The journal lets you inspect the step, actor, scope, enforcement-time conditions, and
 committed delta for each execution. Compare the buyer and organizer lanes with
 the recorded actor when following the commitment and closing steps.
 
@@ -143,3 +143,14 @@ pnpm test
 [exception](test/exceptions.pg.test.ts) tests execute steps through links from
 HTTP affordance payloads. Other tests cover development routes and shared
 console metadata. The full suite requires Postgres.
+
+## Domain storage and external work
+
+Purchases, buyers, and wires live in application-owned relational tables. The
+framework stores case references and execution evidence. Handlers use targeted
+repository operations inside a short transaction. Mock provider dispatch runs
+after that transaction in the application wrapper; it is a demonstration, not a
+durable integration subsystem. Adopters supply their own dispatch and recovery.
+
+This version requires a fresh framework schema. Use `DATABASE_URL` for a new
+database when an older JSONB installation exists; bootstrap never resets it.

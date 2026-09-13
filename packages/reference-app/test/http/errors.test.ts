@@ -14,10 +14,8 @@
 
 import {
   type AffordanceError,
-  CaseBusyError,
   CaseNotFoundError,
   CaseStateValidationError,
-  ClaimLostError,
   type GuardEvaluation,
   ScopeKeyError,
   StepExecutionError,
@@ -69,20 +67,8 @@ const cases: readonly [string, AffordanceError, number, string][] = [
     409,
     'step-not-available',
   ],
-  [
-    'CaseBusyError',
-    new CaseBusyError('c1', {
-      executionId: 'e1',
-      stepName: 'close',
-      scopeKey: null,
-      expiresAt: '2026-08-05T00:00:30.000Z',
-    }),
-    409,
-    'case-busy',
-  ],
   // Never named by the old ladder: it fell through to a rethrow, and the
   // binding turned a lost claim into an unhandled 500.
-  ['ClaimLostError', new ClaimLostError('c1', 'e1', 'e2'), 409, 'case-busy'],
   [
     'StepInputValidationError',
     new StepInputValidationError('close', [{ message: 'required' }]),

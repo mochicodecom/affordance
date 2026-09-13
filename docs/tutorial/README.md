@@ -1,324 +1,139 @@
-# Introduction to Affordance
+# A house purchase built from current facts
 
-Updated: 2026-09-06
+Affordance computes what work is possible for a case and actor. A purchase can
+have buyers awaiting verification, signatures, or funding at the same time.
+Each step declares its conditions independently. The application decides which
+available step to execute; the framework does not prescribe an ordering.
 
-## The problem: too much process structure
+## Run the reference application
 
-We often reach for a finite state machine (FSM) or workflow before asking how
-much ordering the problem actually needs. A house purchase has buyers,
-verification, agreements, and funding progressing independently. Encoding every
-combination as a process position makes exceptions and changing requirements
-expensive to model. A predefined graph also needs a policy for in-flight cases
-when that graph changes.
+From the repository root:
 
-Affordance starts with less structure: **store the facts, define the steps, and
-compute what each actor can do now.** Each step declares the state it needs and
-the state it produces. Steps chain through those facts. An FSM still fits a
-small, stable set of transitions; Affordance fits work whose order emerges from
-changing conditions and several independent concerns.
-
-## The mental model: an object with guarded behavior
-
-A **case** is a persisted object representing one business matter. Its **case
-type** defines a state schema and a set of steps, including their conditions,
-scope, and permissions. An **affordance** is one of those steps currently
-available to a particular actor on that case.
-
-| Term | Meaning in code |
-| --- | --- |
-| Case state | The current document: buyers, commitments, reports, outcomes. |
-| Step | An independently defined guard plus an async handler. |
-| Guard / condition | Named predicates: `requires` checks the case; `permits` checks the actor. All must pass. |
-| Actor | The person, external system, or agent asking or executing. |
-| Scope | A collection element a step binds to, such as one buyer. |
-| Handler | Receives current state and execution context; returns the next state. |
-| Execution / claim | One recorded run, protected by an exclusive, expiring claim on the case. |
-| Journal / delta | The append-only execution record and each committed change as JSON Patch. |
-
-```mermaid
-flowchart LR
-  State["Case state"] --> Evaluate["Evaluate step guards"]
-  Actor["Actor + scope bindings"] --> Evaluate
-  Evaluate --> Available["Affordances"]
-  Evaluate --> Blocked["Blocked steps + reasons"]
-  Available --> Caller["Caller chooses and executes"]
-  Caller --> State
-  Caller --> Journal["Journal"]
+```sh
+pnpm db:up
+pnpm build
+pnpm --filter @affordance/reference-app ui:build
+pnpm --filter @affordance/reference-app serve
 ```
 
-Availability does not start execution. A caller chooses a step; the engine
-checks it again before running it. An empty affordance list means this actor
-has nothing available now. Completion is a domain fact such as `closedAt`.
+The console is at `http://localhost:8787/`. Create a purchase and choose an actor.
+The reference application persists purchases, buyers, and wires in its own
+relational tables. Framework records contain a reference to the purchase.
 
-## Define a small case
+Existing framework schemas from before domain-backed execution are incompatible.
+Use a fresh database through `DATABASE_URL`; bootstrap does not reset an existing
+schema. The application seeds no cases.
 
-This simplified purchase needs commitments from every buyer and a title report
-before it can close. The TypeScript snippets below build one example using the
-workspace's `@affordance/core`, `@affordance/pg`, Zod, and `pg` dependencies.
+## Define a step
 
-```ts
-import {
-  actor,
-  caseType,
-  createEngine,
-  stepsOf,
-} from '@affordance/core'
-import { bootstrap, createPgStorage } from '@affordance/pg'
-import pg from 'pg'
-import { z } from 'zod'
-
-const PurchaseState = z.object({
-  buyers: z.array(
-    z.object({
-      id: z.string(),
-      committedAmount: z.number().positive().nullable(),
-    }),
-  ),
-  titleReportId: z.string().nullable(),
-  closedAt: z.string().nullable(),
-})
-
-type PurchaseActor = { id: string; role: 'buyer' | 'officer' }
-const purchaseStep = stepsOf(PurchaseState, actor<PurchaseActor>())
-```
-
-`stepsOf` infers state, input, and scope types for each step. The schema stores
-independent facts; there is no field identifying a position in a process.
-
-### Scope and permissions belong to the step
-
-`commit-funds` binds to each buyer. Alice can commit her own amount while Bob
-has a separate affordance for his.
+The reference app's schema describes the state its loader assembles. Its typed
+step factory supplies that state, its actor, and its repository interface:
 
 ```ts
-const commitFunds = purchaseStep({
-  name: 'commit-funds',
-  scope: { select: (s) => s.buyers, key: (buyer) => buyer.id },
-  requires: {
-    purchaseOpen: (s) => s.closedAt === null,
-    notCommitted: (_s, ctx) => ctx.scope.committedAmount === null,
+const purchaseStep = stepsOf(
+  PurchaseState,
+  actor<PurchaseActor>(),
+  repositories<PurchaseRepositories>(),
+)
+
+const recordCommitment = purchaseStep({
+  name: 'record-commitment',
+  scope: {
+    select: state => state.buyers.filter(buyer => buyer.committed === null),
+    key: buyer => buyer.id,
   },
-  permits: {
-    isThisBuyer: (_s, ctx) =>
-      ctx.actor?.role === 'buyer' && ctx.actor.id === ctx.scope.id,
-  },
+  requires: { open: state => state.purchase.closedAt === null },
+  permits: { ownCommitment: (_state, ctx) => ctx.actor.id === ctx.scope.id },
   input: z.object({ amount: z.number().positive() }),
-  handler: async (s, ctx) => ({
-    ...s,
-    buyers: s.buyers.map((buyer) =>
-      buyer.id === ctx.scopeKey
-        ? { ...buyer, committedAmount: ctx.input.amount }
-        : buyer,
-    ),
-  }),
-})
-```
-
-The affordance's identity is `(step, scopeKey)`. `requires` explains whether the
-work is possible; `permits` explains whether this actor may do it. The app
-authenticates callers and supplies their actor identity.
-
-### Connect steps through state
-
-An officer can record the title report independently of the buyers' commitments.
-Closing depends on both facts, without naming either preceding step.
-
-```ts
-const recordTitleReport = purchaseStep({
-  name: 'record-title-report',
-  requires: {
-    purchaseOpen: (s) => s.closedAt === null,
-    reportMissing: (s) => s.titleReportId === null,
+  handler: async ctx => {
+    await ctx.repos.commit(ctx.scopeKey, ctx.input.amount)
   },
-  permits: { isOfficer: (_s, ctx) => ctx.actor?.role === 'officer' },
-  input: z.object({ reportId: z.string().min(1) }),
-  handler: async (s, ctx) => ({ ...s, titleReportId: ctx.input.reportId }),
-})
-
-const closePurchase = purchaseStep({
-  name: 'close-purchase',
-  requires: {
-    purchaseOpen: (s) => s.closedAt === null,
-    allCommitted: (s) => ({
-      ok:
-        s.buyers.length > 0 &&
-        s.buyers.every((b) => b.committedAmount !== null),
-      reason: 'Every buyer must commit funds before closing',
-    }),
-    titleChecked: (s) => s.titleReportId !== null,
-  },
-  permits: { isOfficer: (_s, ctx) => ctx.actor?.role === 'officer' },
-  handler: async (s) => ({ ...s, closedAt: new Date().toISOString() }),
-})
-
-const purchase = caseType({
-  name: 'tutorial-purchase',
-  state: PurchaseState,
-  steps: [commitFunds, recordTitleReport, closePurchase],
 })
 ```
 
-Conditions are pure, synchronous predicates: no network calls, mutations, or
-clock reads. External facts must first enter state through a handler. Handlers
-can perform I/O and read the clock, as `closePurchase` does here.
+`requires` checks domain facts; `permits` checks actor authority. Named conditions
+provide reasons when a step is blocked. Conditions are pure and synchronous.
+Scope selects one collection element using a stable key. The handler performs a
+targeted domain update instead of returning a replacement purchase document.
 
-These arrows describe data dependencies, not a graph supplied to the engine:
+## Bind persistence
 
-```mermaid
-flowchart LR
-  Commit["commit-funds, per buyer"] --> Amounts["buyers[].committedAmount"]
-  Record["record-title-report"] --> Report["titleReportId"]
-  Amounts --> Guard["close-purchase guard"]
-  Report --> Guard
-  Guard --> Close["Officer can close"]
-```
-
-The `steps` array controls listing order only. Adding an exception means adding
-another guarded step. Deploying new definitions changes what existing cases can
-do, provided their stored state still satisfies the schema. Handle older state
-shapes deliberately; incompatible changes may need a [migration](../migration.md).
-
-## Ask, execute, ask again
-
-Start the repository's local Postgres with `pnpm db:up` after `pnpm install`
-(Node 22.12+, pnpm, and Docker required). This setup uses its local credentials:
+The application supplies three Postgres operations:
 
 ```ts
-const pool = new pg.Pool({
-  connectionString: 'postgres://postgres:postgres@localhost:5432/affordance',
+const storage = createPgStorage({ db: { pool } })
+const bound = storage.bindCase(purchase, {
+  load: loadPurchase,
+  protect: protectPurchase,
+  repositories: purchaseRepositories,
 })
-await bootstrap(pool)
-const engine = createEngine({ storage: createPgStorage({ db: { pool } }), caseTypes: [purchase] })
-const { id: caseId } = await engine.createCase('tutorial-purchase', {
-  buyers: [{ id: 'alice', committedAmount: null }],
-  titleReportId: null,
-  closedAt: null,
-})
-const alice: PurchaseActor = { id: 'alice', role: 'buyer' }
-const officer: PurchaseActor = { id: 'officer', role: 'officer' }
-
-const { affordances } = await engine.affordances(caseId, alice)
-// [{ step: 'commit-funds', scopeKey: 'alice' }]
-
-const { blocked } = await engine.affordances(caseId, officer)
-const closing = blocked.find((step) => step.step === 'close-purchase')
-console.log(closing?.possible, closing?.permitted) // false, true
-console.log(closing?.unmet.map((condition) => condition.name))
-// ['allCommitted', 'titleChecked']
-
-await engine.execute(caseId, 'commit-funds', {
-  actor: alice,
-  scopeKey: 'alice',
-  input: { amount: 100_000 },
-})
-await engine.execute(caseId, 'record-title-report', {
-  actor: officer,
-  input: { reportId: 'title-123' },
-})
-const next = await engine.affordances(caseId, officer)
-// next.affordances: [{ step: 'close-purchase' }]
-await engine.execute(caseId, 'close-purchase', { actor: officer })
+const engine = createEngine({ storage, caseTypes: [bound] })
+const current = await engine.attachCase('house-purchase', { reference: purchaseId })
 ```
 
-The first two executions can happen in either order. They make closing
-available by changing state; neither handler schedules it. Several affordances
-can coexist, but **only one execution holds a case's claim at a time**, even
-across different scope keys. Independent progress does not require concurrent
-writes to the same case document.
+`loadPurchase` assembles the purchase, buyers, and wires from domain tables.
+`protectPurchase` locks the purchase parent row. Every cooperating writer uses
+that same parent lock, including code outside Affordance that updates a buyer.
+`purchaseRepositories` binds targeted writes to the supplied transaction.
 
-## Execution: a “pseudo-transaction” around an async handler
+Core itself knows no SQL or ORM. An adapter for another persistence technology
+provides the same loading and atomic execution behavior with its own mechanics.
+See [the full storage guide](../storage.md) for a complete binding example.
 
-An execution groups the work into **claim → run → commit**. Two short database
-transactions protect an async handler that runs between them:
-
-```mermaid
-sequenceDiagram
-  participant Engine
-  participant DB as Postgres
-  participant Handler
-  participant Service as External service
-  Engine->>DB: Begin transaction and lock case
-  Engine->>DB: Validate input and recheck guard
-  Engine->>DB: Write claim and journal, then commit
-  Engine->>Handler: Run with state and execution context
-  Note over Engine,DB: Claim heartbeats without holding a transaction
-  Handler->>Service: Await I/O with executionId as deduplication key
-  Service-->>Handler: Result
-  Handler-->>Engine: Return next state
-  Engine->>DB: Begin transaction and verify claim ownership
-  Engine->>DB: Write state, app writes, and journal
-  Engine->>DB: Release claim and commit
-```
-
-For example, this optional step obtains a report through an application-supplied
-service. Register `obtainTitleReport(yourTitleService)` in the case type to use it:
+## Ask and act
 
 ```ts
-type TitleService = {
-  obtain(request: {
-    caseId: string
-    idempotencyKey: string
-  }): Promise<{ id: string }>
-}
-
-const obtainTitleReport = (service: TitleService) =>
-  purchaseStep({
-    name: 'obtain-title-report',
-    requires: {
-      purchaseOpen: (s) => s.closedAt === null,
-      reportMissing: (s) => s.titleReportId === null,
-    },
-    permits: { isOfficer: (_s, ctx) => ctx.actor?.role === 'officer' },
-    handler: async (s, ctx) => {
-      const report = await service.obtain({
-        caseId: ctx.caseId,
-        idempotencyKey: ctx.executionId,
-      })
-      return { ...s, titleReportId: report.id }
-    },
-  })
+const offered = await engine.affordances(current.id, buyerActor)
+await engine.execute(current.id, 'record-commitment', {
+  actor: buyerActor,
+  scopeKey: buyerId,
+  input: { amount: 250_000 },
+})
 ```
 
-The state, journal completion entry, and any app database writes registered with
-`ctx.onCommit(tx => ...)` commit atomically. An external service call cannot be
-rolled back by Postgres. Handlers may retry with the same `executionId`, so the
-service must honor that key to avoid repeating the effect. A new execute call
-gets a new ID; deduplication across separate executions needs an app-level key.
+Available work is a preview. Execution serializes access to the case, reloads
+current domain facts, checks the guard again, runs the handler, then reloads and
+validates the result. Domain changes and execution evidence commit together.
+Different buyer scopes still share the case's atomic operation.
 
-A crashed process stops heartbeating its claim. A later execution can take over
-after expiry; the old handler cannot commit after losing ownership. There is no
-durable suspension of JavaScript. For work that takes hours, commit the request
-and its external identifier, then let a later event execute a step that records
-the result. `ctx.correlate` and `engine.ingest` provide that connection.
+If another domain writer changes the purchase, the next read observes its new
+facts directly. No JSONB copy needs synchronization. That external write does not
+automatically add an execution to the framework journal.
 
-## Every execution leaves evidence
+## External systems
 
-The journal records what happened and why it was allowed, using the evidence at
-execution time:
+The demo records a verification request, then calls its in-memory mock provider
+after the atomic execution returns. The mock provider queues a later webhook.
+The result is materialized through a correlated, guarded step.
 
-| Entry | Evidence |
-| --- | --- |
-| `claimed` | Step, scope, actor, validated input, evaluation time, guard results, and the state those guards read. |
-| `completed` | The committed state delta as JSON Patch. |
-| `attempt-failed` / `failed` | Attempt number and error, including retries that precede success. |
-| `expired` | Abandonment of a claim, recorded when a later execution takes over. |
+That demo orchestration is deliberately application code, not a library worker or
+outbox. Adopters use their existing approach to dispatch, retry, cancel, and
+recover external work. A database transaction never spans the provider call.
+Separate domain operations do not make the whole interaction atomic.
+
+## Inspect evidence
 
 ```ts
-const journal = await engine.journal(caseId)
-const aliceJournal = await engine.journal(caseId, { scopeKey: 'alice' })
-// aliceJournal contains the claimed and completed entries for her commitment.
-await pool.end() // Close the pool when this example finishes.
+const entries = await engine.journal(current.id, { scopeKey: buyerId })
 ```
 
-This records claimed executions, not every API call: reads and refusals before a
-claim write no journal entry. Current state is stored directly; reading a case
-does not replay its journal or rerun old handlers.
+Each committed operation has a `started` entry with immutable state, actor,
+validated input, and guard evidence, followed by a `completed` entry with its
+delta. They commit together. `replayGuard` compares today's guard against the
+historical snapshot. The engine records committed domain operations; refusals and
+rolled-back attempts do not create journal entries.
 
-## Go further
+A lost COMMIT acknowledgment produces an uncertain outcome rather than a definite
+failure. The Postgres adapter can reconcile by execution identity before the
+application decides whether another attempt is appropriate.
 
-- [Reference app](../../packages/reference-app/README.md): a full purchase with
-  multiple buyers, provider events, and exception handling.
-- [Codebase map](reference/codebase-map.md): where the public APIs and their
-  implementations live.
-- [Vocabulary](../../CONTEXT.md), [architecture](../architecture.md), and
-  [HTTP contract](../affordance-contract.md): precise definitions and deeper detail.
+## Completion and evolution
+
+Completion is a domain fact such as `purchase.closedAt`. Calling `ctx.end()` marks
+the case dormant, excluding it from routine listings while still allowing work
+such as deed recording. `ctx.reopen()` clears that marker.
+
+Definitions resolve by name against current code. Applications manage domain
+schema/data migrations and loader compatibility. There is no generic document
+migration API. See [domain evolution](../migration.md), [architecture](../architecture.md),
+and [the codebase map](reference/codebase-map.md).

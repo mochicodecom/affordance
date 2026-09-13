@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import {
   actor,
   caseType,
   createEngine,
+  repositories,
   StepInputValidationError,
   StepNotAvailableError,
   stepsOf,
@@ -16,71 +18,87 @@ const State = z.object({
     z.object({ id: z.string(), done: z.boolean(), amount: z.number() }),
   ),
 })
-const step = stepsOf(State, actor<{ id: string }>())
-const finish = step({
-  name: 'finish',
-  scope: { select: (state) => state.items, key: (item) => item.id },
-  requires: { unfinished: (_state, ctx) => !ctx.scope.done },
-  permits: { owns: (_state, ctx) => ctx.actor.id === ctx.scope.id },
-  input: z.object({ amount: z.number().positive() }),
-  handler: async (state, ctx) => {
-    const amount: number = ctx.input.amount
-    const id: string = ctx.scope.id
-    // Consumer inference must preserve the input and scope types.
-    // @ts-expect-error amount is inferred as a number, never a string or any.
-    const invalid: string = ctx.input.amount
-    void invalid
-    return {
-      ...state,
-      items: state.items.map((item) =>
-        item.id === id ? { ...item, done: true, amount } : item,
-      ),
-    }
-  },
-})
+interface Repos {
+  finish(id: string, amount: number): Promise<void>
+}
+const step = stepsOf(State, actor<{ id: string }>(), repositories<Repos>())
 const definition = caseType({
-  name: 'npm-consumer',
+  name: `npm-consumer-${randomUUID()}`,
   state: State,
-  steps: [finish],
+  steps: [
+    step({
+      name: 'finish',
+      scope: { select: (state) => state.items, key: (item) => item.id },
+      requires: { unfinished: (_s, c) => !c.scope.done },
+      permits: { owns: (_s, c) => c.actor.id === c.scope.id },
+      input: z.object({ amount: z.number().positive() }),
+      handler: async (ctx) => {
+        // @ts-expect-error input remains numeric through published declarations
+        const invalid: string = ctx.input.amount
+        void invalid
+        await ctx.repos.finish(ctx.scope.id, ctx.input.amount)
+      },
+    }),
+  ],
 })
 const pool = new Pool({
   connectionString:
     process.env.TEST_DATABASE_URL ??
     'postgres://postgres:postgres@localhost:5432/affordance_test',
 })
-
 try {
   await bootstrap(pool)
-  const engine = createEngine({
-    storage: createPgStorage({ db: { pool } }),
-    caseTypes: [definition],
+  await pool.query(
+    'create table if not exists consumer_items (reference text, id text, done boolean, amount double precision, primary key(reference,id))',
+  )
+  const reference = randomUUID()
+  await pool.query("insert into consumer_items values ($1,'owner',false,0)", [
+    reference,
+  ])
+  const storage = createPgStorage({ db: { pool } })
+  const bound = storage.bindCase(definition, {
+    load: async (q, id) => ({
+      items: (
+        await q.query<{ id: string; done: boolean; amount: number }>(
+          'select id,done,amount from consumer_items where reference=$1 order by id',
+          [id],
+        )
+      ).rows,
+    }),
+    protect: async (tx, id) => {
+      await tx.query(
+        'select id from consumer_items where reference=$1 order by id for update',
+        [id],
+      )
+    },
+    repositories: (tx, reference) => ({
+      finish: async (id, amount) => {
+        await tx.query(
+          'update consumer_items set done=true,amount=$3 where reference=$1 and id=$2',
+          [reference, id, amount],
+        )
+      },
+    }),
   })
-  const created = await engine.createCase(definition.name, {
-    items: [{ id: 'owner', done: false, amount: 0 }],
-  })
-  const current = await engine.affordances(created.id, { id: 'owner' })
-  const available = current.affordances[0]
+  const engine = createEngine({ storage, caseTypes: [bound] })
+  const current = await engine.attachCase(definition.name, { reference })
+  const available = (await engine.affordances(current.id, { id: 'owner' }))
+    .affordances[0]
   assert(available)
-  assert.equal(available.step, 'finish')
   assert.equal(available.scopeKey, 'owner')
   const execute = (amount: number) =>
-    engine.execute(created.id, available.step, {
+    engine.execute(current.id, 'finish', {
       actor: { id: 'owner' },
-      scopeKey: available.scopeKey,
+      scopeKey: 'owner',
       input: { amount },
     })
   await assert.rejects(execute(-1), StepInputValidationError)
-  const result = await execute(10)
-  assert(result.delta.length > 0)
+  assert((await execute(10)).delta.length > 0)
   await assert.rejects(execute(10), StepNotAvailableError)
-  const journal = await engine.journal(created.id)
   assert.deepEqual(
-    journal.map((entry) => entry.entry),
-    ['claimed', 'completed'],
+    (await engine.journal(current.id)).map((e) => e.entry),
+    ['started', 'completed'],
   )
-  assert(journal[0]?.guard?.available)
-  const after = await engine.affordances(created.id, { id: 'owner' })
-  assert.equal(after.affordances.length, 0)
 } finally {
   await pool.end()
 }

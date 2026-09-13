@@ -1,7 +1,7 @@
 /**
  * The one idiom behind every filtered read in the package: a `where` clause
  * assembled from a list of AND-ed conditions and a positional values array.
- * The journal, the dead-letter surface, and the migration candidate query
+ * The journal, the dead-letter surface, and case listing
  * each read a different table, but they all number their placeholders and
  * join their conditions the same way — stated once here, so a new filter
  * cannot number a placeholder wrong.

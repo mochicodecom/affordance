@@ -1,3 +1,12 @@
+import { withTransaction } from '@affordance/pg'
+import { HOUSE_PURCHASE } from './purchase.js'
+import {
+  bootstrapPurchases,
+  insertPurchase,
+  loadPurchase,
+  protectPurchase,
+  purchaseRepositories,
+} from './repository.js'
 /**
  * Wiring: the engine, the providers, the HTTP adapter — plus the demo
  * console.
@@ -331,24 +340,71 @@ export const createPurchaseApp = async (
 ): Promise<PurchaseApp> => {
   if (options.bootstrapSchema !== false)
     await bootstrap(queryableOf(options.db))
+  if (options.bootstrapSchema !== false)
+    await bootstrapPurchases(queryableOf(options.db))
 
   const services = isServices(options.services)
     ? options.services
     : createMockServices(options.services)
 
-  const caseTypes = [createPurchaseDefinition(services)]
-  const engine = createEngine({
-    storage: createPgStorage({ db: options.db }),
+  const storage = createPgStorage({ db: options.db })
+  const caseTypes = [
+    storage.bindCase(createPurchaseDefinition(), {
+      load: loadPurchase,
+      protect: protectPurchase,
+      repositories: purchaseRepositories,
+    }),
+  ]
+  const atomicEngine = createEngine({
+    storage,
     caseTypes,
     // Ingestion runs as *this app's* actor shape, not as the
     // framework's marker: `permits` conditions here read `roles`.
     ingestion: { actor: (event) => integration(event.system) },
   })
 
+  // Demo orchestration runs only after the atomic domain execution returns.
+  // Real adopters supply their existing delivery/recovery mechanism here.
+  const engine: Engine = {
+    ...atomicEngine,
+    execute: async (id, step, executeOptions) => {
+      const result = await atomicEngine.execute(id, step, executeOptions)
+      const state = result.state as Purchase
+      const buyer = state.buyers.find((b) => b.id === executeOptions.scopeKey)
+      if (step === 'open-escrow')
+        services.applyForEscrowAccount({
+          address: state.purchase.address,
+          requestId: state.escrow.applicationId!,
+        })
+      if (step === 'start-verification' && buyer)
+        services.startVerification({
+          buyerId: buyer.id,
+          requestId: buyer.verification.checkId!,
+          ...(buyer.name.includes('(hit)') ? { hits: ['sanctions:OFAC'] } : {}),
+        })
+      if (step === 'send-agreement' && buyer)
+        services.sendEnvelope({
+          buyerId: buyer.id,
+          requestId: buyer.agreement!.envelopeId!,
+        })
+      return result
+    },
+  }
+
   const basePath = options.basePath ?? '/api'
 
   const api = createAffordanceApi({
-    engine,
+    engine: {
+      ...engine,
+      createCase: async (type, state) => {
+        if (type !== HOUSE_PURCHASE)
+          throw new TypeError('unknown purchase type')
+        return withTransaction(options.db, async (tx) => {
+          const reference = await insertPurchase(tx, state)
+          return storage.attachCase(tx, caseTypes[0]!, reference)
+        })
+      },
+    },
     basePath,
     describeInput: (schema) => z.toJSONSchema(schema as z.ZodType),
   })

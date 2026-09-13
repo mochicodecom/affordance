@@ -23,7 +23,7 @@ export interface Queryable {
  * checkout the same way.
  */
 export interface PoolLike extends Queryable {
-  connect(): Promise<Queryable & { release(): void }>
+  connect(): Promise<Queryable & { release(discard?: boolean): void }>
 }
 
 /**

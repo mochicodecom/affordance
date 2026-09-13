@@ -16,7 +16,7 @@
  *
  * Addressing a step and binding its scope element is `../model/target.js`'s
  * job rather than this module's: it is a fact about a step definition and a
- * state, and every other consumer of it — the claim,
+ * state, and every other consumer of it — the execution,
  * audit replay — would otherwise have to import the engine to reach it.
  */
 
@@ -144,7 +144,7 @@ const toBlocked = (
  * Compute the affordances record for one case snapshot: every step's guard
  * evaluated against (state, actor, asOf); scoped steps fan out to one
  * independent evaluation per selected element. Handlers are never
- * touched — this is a read (guards advise; enforcement is the claim's job).
+ * touched — this is a read (guards advise; enforcement is the execution's job).
  *
  * A scoped step whose selector is defective is absorbed into a blocked entry
  * under the synthetic `$scope` condition (one defective selector must not
@@ -152,8 +152,8 @@ const toBlocked = (
  * `ScopeKeyError` (identity corruption — `selectTargets` never absorbs it).
  * A scoped step selecting zero elements contributes nothing to either list.
  */
-export const computeAffordances = <S extends StandardSchemaV1, TActor, TCommit>(
-  definition: CaseTypeDefinition<S, TActor, TCommit>,
+export const computeAffordances = <S extends StandardSchemaV1, TActor, TRepos>(
+  definition: CaseTypeDefinition<S, TActor, TRepos>,
   snapshot: CaseSnapshot<StandardSchemaV1.InferOutput<S>>,
   ctx: ComputationContext<TActor>,
 ): CaseAffordances => {
@@ -239,8 +239,8 @@ export const explainContext = <TActor = unknown>(
  * `actor` is whatever the caller supplies; to ask "why can't *this* actor",
  * pass that actor — `permits` conditions are evaluated against it verbatim.
  */
-export const computeExplanation = <S extends StandardSchemaV1, TActor, TCommit>(
-  definition: CaseTypeDefinition<S, TActor, TCommit>,
+export const computeExplanation = <S extends StandardSchemaV1, TActor, TRepos>(
+  definition: CaseTypeDefinition<S, TActor, TRepos>,
   snapshot: CaseSnapshot<StandardSchemaV1.InferOutput<S>>,
   stepName: string,
   ctx: ComputationContext<TActor> & { readonly scopeKey?: string },

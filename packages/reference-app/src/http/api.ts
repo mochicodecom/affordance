@@ -16,6 +16,7 @@
 
 import type {
   AffordanceErrorCode,
+  CaseHandle,
   DeadLetterFilter,
   Engine,
   ExternalEvent,
@@ -59,7 +60,6 @@ import {
  */
 export type EnginePort = Pick<
   Engine,
-  | 'createCase'
   | 'affordances'
   | 'affordancesOf'
   | 'explain'
@@ -69,8 +69,7 @@ export type EnginePort = Pick<
   | 'deadLetters'
   | 'inputSchemaFor'
   | 'stepMetadataFor'
->
-
+> & { createCase(type: string, state: unknown): Promise<CaseHandle<unknown>> }
 /** One request, in the only shape this adapter knows. */
 export interface ApiRequest {
   readonly method: string
@@ -126,7 +125,7 @@ const json = (status: number, body: unknown): ApiResponse => ({ status, body })
  */
 const STATUS: Record<AffordanceErrorCode, number> = {
   'step-not-available': 409,
-  'case-busy': 409,
+
   'invalid-input': 422,
   'not-found': 404,
   'bad-request': 400,

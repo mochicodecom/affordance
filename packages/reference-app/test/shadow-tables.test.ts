@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { ACTOR_HEADERS } from '../src/app.js'
 import { createPurchaseDefinition } from '../src/purchase.js'
-import { createMockServices, PROVIDER_EVENTS } from '../src/services.js'
+import { PROVIDER_EVENTS } from '../src/services.js'
 import { ACTOR_HEADERS as UI_ACTOR_HEADERS } from '../ui/src/lib/actor-headers.js'
 import {
   DONE_WHEN_UNMET,
@@ -22,7 +22,7 @@ import {
   WORLD_LABELS,
 } from '../ui/src/lib/house-purchase-tables.js'
 
-const definition = createPurchaseDefinition(createMockServices())
+const definition = createPurchaseDefinition()
 
 const stepNames = new Set(definition.steps.map((step) => step.name))
 

@@ -1,20 +1,8 @@
-/**
- * The execution lifecycle and the journal.
- *
- * An **Execution** is one recorded run of a step on a case (CONTEXT.md): a
- * claim that re-evaluates the guard transactionally, a handler run outside
- * any transaction, and a commit that writes the new Case State together with
- * the journal entry describing it. The **journal** is the immutable,
- * append-only record those Executions leave behind.
- *
- * See `execute.ts` for the lifecycle's shape and the reasoning behind it.
- */
-
+/** Atomic domain execution and immutable journal evidence. */
 export type { PatchOp, StateDelta } from './delta.js'
 export { diffState, jsonEqual } from './delta.js'
 export {
-  CaseBusyError,
-  ClaimLostError,
+  ExecutionIndeterminateError,
   StepExecutionError,
   StepNotAvailableError,
   stepLabel,
@@ -23,23 +11,17 @@ export type {
   ExecuteOptions,
   ExecutionEnvironment,
   ExecutionResult,
-  LifecycleDeps,
   SystemCommit,
   SystemRunOptions,
   SystemRunOutcome,
   SystemSettled,
 } from './execute.js'
 export {
-  DEFAULT_CLAIM_TTL_MS,
-  DEFAULT_HEARTBEAT_MS,
   executeStep,
   runAsSystem,
-  runLifecycle,
   settleSystemRun,
 } from './execute.js'
 export type {
-  ClaimedEntryInput,
-  ClaimedJournalEntry,
   CompletedEntryInput,
   ExecutionRecord,
   ExecutionStatus,
@@ -50,14 +32,19 @@ export type {
   JournalEntryType,
   JournalError,
   JournalFilter,
+  StartedEntryInput,
+  StartedJournalEntry,
 } from './journal.js'
 export {
   foldExecutions,
-  isClaimedEntry,
+  isStartedEntry,
   projectEntry,
 } from './journal.js'
-export type { HeldClaim, LifecyclePort, LifecycleTx } from './port.js'
+export type {
+  AtomicCasePort,
+  AtomicCaseSession,
+  CompletionEvidence,
+  CompletionMetadata,
+} from './port.js'
 export type { GuardReplay } from './replay.js'
 export { replayGuard } from './replay.js'
-export type { Timers } from './timers.js'
-export { realTimers } from './timers.js'

@@ -20,8 +20,6 @@ export type {
 export { caseType } from './casetype.js'
 export { ScopeKeyError, UnknownStepError } from './errors.js'
 export type {
-  CommitEffect,
-  CommitWrite,
   CorrelationRequest,
   ErasedStepHandler,
   HandlerContext,
@@ -29,8 +27,6 @@ export type {
   ScopedStepHandler,
   StepHandler,
 } from './handler.js'
-export type { RetryOptions, RetryPolicy } from './retry.js'
-export { DEFAULT_RETRY, normalizeRetry } from './retry.js'
 export type {
   ScopeDeclaration,
   ScopedCondition,
@@ -41,7 +37,7 @@ export type {
 export type {
   ActorMarker,
   BoundStep,
-  CommitContextMarker,
+  RepositoriesMarker,
   ScopedStepOptions,
   StepDefinition,
   StepMetadata,
@@ -49,7 +45,7 @@ export type {
 } from './step.js'
 export {
   actor,
-  commitContext,
+  repositories,
   StepInputValidationError,
   step,
   stepsOf,

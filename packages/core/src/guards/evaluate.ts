@@ -24,7 +24,7 @@ import { toIso } from './time.js'
  * clock, no I/O — so the same context always produces the same record.
  *
  * `asOf` is explicit and mandatory: it is the instant the evaluation is
- * made as of, stated on the record so the journal's claim-time evidence is
+ * made as of, stated on the record so the journal's enforcement-time evidence is
  * self-contained.
  *
  * Scoped steps: when evaluating a scoped step's guard for

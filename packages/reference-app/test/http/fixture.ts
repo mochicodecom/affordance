@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto'
+import { createEngine, repositories } from '@affordance/core'
+import { createMemoryStorage } from '../../../core/test/storage/memory.js'
 /**
  * A house-purchase-shaped case type with two audiences: the organizer, who
  * runs the purchase, and buyers, who see only their own track — the steps
@@ -45,7 +48,13 @@ export const buyerB: Actor = { id: 'buyer_b', roles: ['buyer'] }
 const isOrganizer = (_s: Purchase, ctx: ConditionContext<Actor>): boolean =>
   ctx.actor?.roles.includes('organizer') ?? false
 
-const purchaseStep = stepsOf(PurchaseState, actor<Actor>())
+const purchaseStep = stepsOf(
+  PurchaseState,
+  actor<Actor>(),
+  repositories<{
+    change: (fn: (state: Purchase) => Purchase) => Promise<void>
+  }>(),
+)
 
 /** Scoped + buyer-permitted: each buyer may sign their own agreement and no one else's. */
 export const signAgreement = purchaseStep({
@@ -61,13 +70,14 @@ export const signAgreement = purchaseStep({
     }),
   },
   input: z.object({ signedAt: z.string() }),
-  handler: async (s, ctx) => ({
-    ...s,
-    buyers: s.buyers.map((b) =>
-      b.id === ctx.scopeKey ? { ...b, signed: true } : b,
-    ),
-    notes: [...s.notes, `${ctx.scopeKey} signed`],
-  }),
+  handler: async (ctx) =>
+    ctx.repos.change((s) => ({
+      ...s,
+      buyers: s.buyers.map((b) =>
+        b.id === ctx.scopeKey ? { ...b, signed: true } : b,
+      ),
+      notes: [...s.notes, `${ctx.scopeKey} signed`],
+    })),
 })
 
 /** Purchase-level, organizer only. */
@@ -75,7 +85,8 @@ export const confirmSplit = purchaseStep({
   name: 'confirm-split',
   requires: { notConfirmed: (s) => !s.split.confirmed },
   permits: { isOrganizer },
-  handler: async (s) => ({ ...s, split: { confirmed: true } }),
+  handler: async (ctx) =>
+    ctx.repos.change((s) => ({ ...s, split: { confirmed: true } })),
 })
 
 /** Purchase-level, blocked on a `requires` — the "show me why not" subject. */
@@ -90,12 +101,12 @@ export const closePurchase = purchaseStep({
     splitFinal: (s) => s.split.confirmed,
   },
   permits: { isOrganizer },
-  handler: async (s, ctx) => {
+  handler: async (ctx) => {
     ctx.end()
-    return {
+    await ctx.repos.change((s) => ({
       ...s,
       purchase: { ...s.purchase, closedAt: '2026-09-01T00:00:00.000Z' },
-    }
+    }))
   },
 })
 
@@ -104,12 +115,13 @@ export const recordCommitment = purchaseStep({
   name: 'record-commitment',
   scope: { select: (s) => s.buyers, key: (b) => b.id },
   input: z.object({ amount: z.number() }),
-  handler: async (s, ctx) => ({
-    ...s,
-    buyers: s.buyers.map((b) =>
-      b.id === ctx.scopeKey ? { ...b, committed: ctx.input.amount } : b,
-    ),
-  }),
+  handler: async (ctx) =>
+    ctx.repos.change((s) => ({
+      ...s,
+      buyers: s.buyers.map((b) =>
+        b.id === ctx.scopeKey ? { ...b, committed: ctx.input.amount } : b,
+      ),
+    })),
 })
 
 export const purchase = caseType({
@@ -147,5 +159,21 @@ export const stubEnginePort = (
     inputSchemaFor: () => null,
     stepMetadataFor: () => null,
     ...overrides,
+  }
+}
+
+export const httpEngine = () => {
+  const memory = createMemoryStorage()
+  const binding = memory.bindCase(purchase, (read, write) => ({
+    change: async (fn) => write(fn(read())),
+  }))
+  const engine = createEngine({ storage: memory.storage, caseTypes: [binding] })
+  return {
+    ...engine,
+    createCase: async (type: string, state: unknown) => {
+      const reference = randomUUID()
+      await memory.seed(reference, PurchaseState.parse(state))
+      return engine.attachCase(type, { reference })
+    },
   }
 }

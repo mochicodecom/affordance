@@ -57,7 +57,7 @@ const toEntry = (row: JournalRow): JournalEntry => {
     asOf: row.as_of === null ? null : row.as_of.toISOString(),
     guard: row.guard,
     state:
-      row.entry === 'claimed'
+      row.entry === 'started'
         ? deserializeValue(row.state, `${context} state`)
         : null,
     delta: row.delta,
@@ -91,7 +91,7 @@ export const appendEntry = async (
       JSON.stringify(serializeValue(entry.input, `${context} input`)),
       entry.asOf,
       JSON.stringify(entry.guard),
-      entry.entry === 'claimed'
+      entry.entry === 'started'
         ? JSON.stringify(serializeValue(entry.state, `${context} state`))
         : null,
       JSON.stringify(entry.delta),

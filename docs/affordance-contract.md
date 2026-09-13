@@ -134,7 +134,7 @@ availability and that execution's journal entries:
     "delta": [{ "op": "replace", "path": "/json/buyers/0/committedAmount", "value": 100000 }],
     "dormancy": null,
     "endedAt": null,
-    "claimedAt": "2026-09-06T19:00:01.001Z",
+    "startedAt": "2026-09-06T19:00:01.001Z",
     "committedAt": "2026-09-06T19:00:01.412Z"
   },
   "links": {
@@ -211,7 +211,7 @@ does not preview a timer or make a step available. The engine has no `after`
 combinator or scheduler.
 
 The HTTP execute route does not forward a caller's `asOf`; the engine supplies
-its current evaluation time. For past decisions, read claimed journal evidence.
+its current evaluation time. For past decisions, read started journal evidence.
 
 ## Errors
 
@@ -223,7 +223,6 @@ package. The adapter maps it to an HTTP status:
 | `400` | `bad-request` | Unknown step, invalid scope address, or malformed request parameters. |
 | `404` | `not-found` | A requested case, case type, or route cannot be resolved. |
 | `409` | `step-not-available` | Current guard failed; includes `possible`, `permitted`, and `unmet`. |
-| `409` | `case-busy` | Another execution holds the claim, or this execution lost ownership. |
 | `422` | `invalid-input` | Step input failed its schema; includes `issues`. |
 | `500` | `execution-failed` | Handler or commit failed, including exhausted retries or invalid returned state. |
 | `500` | `invalid-state` | Case state failed validation, including initial or stored state. |
@@ -260,12 +259,12 @@ app's `403` for unauthorized case creation.
 ## Journal
 
 The response is `{ contract, entries }`, ordered by journal ordinal. Entry kinds
-are `claimed`, `attempt-failed`, `completed`, `failed`, and `expired`.
-
-A claim records the state and conditions used to permit execution. Completion
-records the state delta; failures record the attempt and error. Expiration is
-recorded when another execution takes over an abandoned claim. Reads, creation,
-and refused claims do not produce execution journal entries. Visibility controls
+are `started`, `completed`, and `failed` (the latter is reserved for explicit
+confirmed rollback diagnostics). The ordinary engine writes only `started` and
+`completed`, atomically with domain changes. Started evidence records the state,
+actor, input, and conditions used to permit execution. Completion records the
+delta and dormancy. Reads, creation, refusals, and rolled-back operations produce
+no ordinary execution journal entries. Visibility controls
 which of that evidence the response includes.
 
 ## Events and dead letters
@@ -289,7 +288,7 @@ executes it; the host authenticates the event source.
 
 Deduplication uses an explicit `idempotencyKey` when supplied. Otherwise the key
 combines system, external ID, event type, and the event ID or a payload hash.
-`occurredAt` can record the provider's timestamp; it does not set claim time.
+`occurredAt` can record the provider's timestamp; it does not set evaluation time.
 
 The response is `{ contract, ingestion }`, with status `executed`, `duplicate`,
 or `dead-lettered`. Executed results contain the same execution descriptor as

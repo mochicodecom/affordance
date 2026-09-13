@@ -1,13 +1,3 @@
-/**
- * The ways an Execution can be refused or fail.
- *
- * Each is a distinct answer to "why didn't this run", and callers are
- * expected to branch on them: {@link StepNotAvailableError} is a client-facing
- * *no* with reasons attached; {@link CaseBusyError} is "not now, try again";
- * {@link ClaimLostError} and {@link StepExecutionError} are failures of a run
- * that did start.
- */
-
 import { AffordanceError, thrownMessage } from '../errors.js'
 import type { ConditionResult, GuardEvaluation } from '../guards/index.js'
 import { describeUnmet, unmetConditions } from '../guards/index.js'
@@ -21,7 +11,7 @@ export const stepLabel = (stepName: string, scopeKey: string | null): string =>
   scopeKey === null ? `'${stepName}'` : `'${stepName}' (${scopeKey})`
 
 /**
- * The claim's transactional guard re-evaluation said no — the enforcement
+ * The execution's transactional guard re-evaluation said no — the enforcement
  * moment. Guards advise; handlers enforce: an affordance computed
  * for a render is advice, and by the time the execute request arrives, state
  * may have moved (another Execution committed) or the definitions may have
@@ -29,7 +19,7 @@ export const stepLabel = (stepName: string, scopeKey: string | null): string =>
  * same mechanism as state races).
  *
  * The unmet conditions carried here are the *current* ones, evaluated inside
- * the claim transaction, so a rejection is self-explaining: hand `unmet`
+ * the execution transaction, so a rejection is self-explaining: hand `unmet`
  * straight back to the caller.
  */
 export class StepNotAvailableError extends AffordanceError {
@@ -40,7 +30,7 @@ export class StepNotAvailableError extends AffordanceError {
   readonly possible: boolean
   /** False when a `permits` condition is unmet: possible, but not for this actor. */
   readonly permitted: boolean
-  /** The failed condition results, verbatim from the claim-time evaluation. */
+  /** The failed condition results, verbatim from the enforcement-time evaluation. */
   readonly unmet: readonly ConditionResult[]
   /** The full evaluation record, for journaling or `explain`-style rendering. */
   readonly evaluation: GuardEvaluation
@@ -70,86 +60,7 @@ export class StepNotAvailableError extends AffordanceError {
   }
 }
 
-/**
- * Another Execution is already in flight on this case and its claim has not
- * expired. Executions are serialized per case in v1 — cases advance at human
- * pace, so one Execution at a time costs no real throughput — which makes
- * this "not now", not "never": retry after
- * {@link CaseBusyError.expiresAt} at the latest.
- */
-export class CaseBusyError extends AffordanceError {
-  readonly caseId: string
-  /** The in-flight Execution holding the case. */
-  readonly executionId: string
-  readonly stepName: string
-  readonly scopeKey: string | null
-  /** When the in-flight claim lapses if its handler stops heartbeating (ISO-8601 UTC). */
-  readonly expiresAt: string
-
-  constructor(
-    caseId: string,
-    holder: {
-      executionId: string
-      stepName: string
-      scopeKey: string | null
-      expiresAt: string
-    },
-  ) {
-    super(
-      'case-busy',
-      `case ${caseId} is busy: execution ${holder.executionId} is running step ${stepLabel(
-        holder.stepName,
-        holder.scopeKey,
-      )}, claim expires ${holder.expiresAt}`,
-    )
-    this.name = 'CaseBusyError'
-    this.caseId = caseId
-    this.executionId = holder.executionId
-    this.stepName = holder.stepName
-    this.scopeKey = holder.scopeKey
-    this.expiresAt = holder.expiresAt
-  }
-}
-
-/**
- * The claim was gone (or belonged to someone else) when this Execution tried
- * to commit: its lease expired mid-handler and another claimant took the case
- * over. The handler's effects on the outside world already happened — they are
- * at-least-once by contract and deduplicated on `executionId` — but
- * its Case State write is refused, because the state it computed from is stale.
- */
-export class ClaimLostError extends AffordanceError {
-  readonly caseId: string
-  readonly executionId: string
-  /** The Execution now holding the case, if any. */
-  readonly heldBy: string | null
-
-  constructor(caseId: string, executionId: string, heldBy: string | null) {
-    super(
-      // The case moved on under this Execution: somebody else holds it now,
-      // and the state this Execution computed from is stale. That is the
-      // same "not now" answer a busy case gives, so it reuses 'case-busy' —
-      // a code an adapter already knows how to render.
-      'case-busy',
-      `execution ${executionId} lost its claim on case ${caseId}${
-        heldBy === null
-          ? ' (claim expired and was released)'
-          : ` (now held by ${heldBy})`
-      } — its state write was refused`,
-    )
-    this.name = 'ClaimLostError'
-    this.caseId = caseId
-    this.executionId = executionId
-    this.heldBy = heldBy
-  }
-}
-
-/**
- * The Execution ran and failed: the handler threw on every allowed attempt,
- * or it returned a Case State the case type's schema rejects (a deterministic
- * defect, failed without retry). A `failed` journal entry records it and the
- * case is released.
- */
+/** A domain handler or its completion failed; the atomic operation is aborted. */
 export class StepExecutionError extends AffordanceError {
   readonly caseId: string
   readonly executionId: string
@@ -180,5 +91,20 @@ export class StepExecutionError extends AffordanceError {
     this.stepName = stepName
     this.scopeKey = scopeKey
     this.attempts = attempts
+  }
+}
+
+/** The database may have committed; never classify this as a definite failure. */
+export class ExecutionIndeterminateError extends Error {
+  constructor(
+    readonly caseId: string,
+    readonly executionId: string,
+    options?: ErrorOptions,
+  ) {
+    super(
+      `execution ${executionId} on case ${caseId} has an unknown commit outcome; reconcile before retrying`,
+      options,
+    )
+    this.name = 'ExecutionIndeterminateError'
   }
 }

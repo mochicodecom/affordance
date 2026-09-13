@@ -11,10 +11,8 @@ import { describe, expect, it } from 'vitest'
 import {
   AffordanceError,
   type AffordanceErrorCode,
-  CaseBusyError,
   CaseNotFoundError,
   CaseStateValidationError,
-  ClaimLostError,
   type GuardEvaluation,
   isAffordanceError,
   ScopeKeyError,
@@ -48,17 +46,6 @@ const taxonomy: readonly [string, AffordanceError, AffordanceErrorCode][] = [
     new StepNotAvailableError('c1', 'close', null, evaluation),
     'step-not-available',
   ],
-  [
-    'CaseBusyError',
-    new CaseBusyError('c1', {
-      executionId: 'e1',
-      stepName: 'close',
-      scopeKey: null,
-      expiresAt: '2026-08-05T00:00:30.000Z',
-    }),
-    'case-busy',
-  ],
-  ['ClaimLostError', new ClaimLostError('c1', 'e1', 'e2'), 'case-busy'],
   [
     'StepExecutionError',
     new StepExecutionError('c1', 'e1', 'close', null, 3, new Error('boom')),
@@ -116,7 +103,7 @@ describe('the error taxonomy', () => {
   it('covers every code in the taxonomy — a code nothing raises is a contract with no meaning', () => {
     const codes: readonly AffordanceErrorCode[] = [
       'step-not-available',
-      'case-busy',
+
       'invalid-input',
       'not-found',
       'bad-request',

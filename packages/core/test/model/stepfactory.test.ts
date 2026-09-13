@@ -27,7 +27,7 @@ describe('stepsOf() — the schema-anchored step factory', () => {
       permits: {
         canApprove: (_s, ctx) => ctx.actor.roles.includes('approver'),
       },
-      handler: async (s) => s,
+      handler: async () => {},
     })
     expect(definition.name).toBe('approve')
     expect(definition.scope).toBeNull()
@@ -44,7 +44,7 @@ describe('stepsOf() — the schema-anchored step factory', () => {
         key: (i) => i.id,
       },
       requires: { stillOpen: (_s, ctx) => !ctx.scope.done },
-      handler: async (s) => s,
+      handler: async () => {},
     })
     expect(definition.scope).not.toBeNull()
     const state = State.parse({
@@ -59,9 +59,8 @@ describe('stepsOf() — the schema-anchored step factory', () => {
     const definition = testStep({
       name: 'approve-with-note',
       input: z.object({ note: z.string() }),
-      handler: async (s, ctx) => {
+      handler: async (ctx) => {
         const _note: string = ctx.input.note
-        return s
       },
     })
     expect(definition.input).not.toBeNull()
@@ -70,12 +69,12 @@ describe('stepsOf() — the schema-anchored step factory', () => {
   it('returns step itself — factory-authored steps mix freely into a caseType', () => {
     const viaFactory = testStep({
       name: 'via-factory',
-      handler: async (s) => s,
+      handler: async () => {},
     })
     const viaBare = step({
       name: 'via-bare',
       requires: { approved: (s: z.output<typeof State>) => s.approved },
-      handler: async (s: z.output<typeof State>) => s,
+      handler: async () => {},
     })
     const definition = caseType({
       name: 'mixed',
@@ -87,14 +86,14 @@ describe('stepsOf() — the schema-anchored step factory', () => {
   })
 
   it('keeps step()-level definition-time validation', () => {
-    expect(() => testStep({ name: '', handler: async (s) => s })).toThrow(
+    expect(() => testStep({ name: '', handler: async () => {} })).toThrow(
       TypeError,
     )
     expect(() =>
       testStep({
         name: 'broken',
         requires: { bad: 42 as never },
-        handler: async (s) => s,
+        handler: async () => {},
       }),
     ).toThrow(/step 'broken': requires\.bad must be/)
   })
@@ -116,7 +115,7 @@ describe('stepsOf() — the schema-anchored step factory', () => {
         // @ts-expect-error — `aproved` is not a property of the schema's state
         typo: (s) => s.aproved,
       },
-      handler: async (s) => s,
+      handler: async () => {},
     })
     expect(definition.name).toBe('typo')
   })
@@ -128,7 +127,7 @@ describe('stepsOf() — the schema-anchored step factory', () => {
         roled: (_s, ctx: ConditionContext<TestActor>) =>
           ctx.actor.roles.length > 0,
       },
-      handler: async (s) => s,
+      handler: async () => {},
     })
     expect(Object.keys(definition.guard.permits ?? {})).toEqual(['roled'])
   })

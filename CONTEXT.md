@@ -1,6 +1,6 @@
 # Affordance
 
-Updated: 2026-09-06
+Updated: 2026-09-13
 
 A framework for long-lived business cases whose available work is computed from
 current state and actor permissions. For examples, read the
@@ -12,8 +12,7 @@ current state and actor permissions. For examples, read the
 ### Cases and available work
 
 **Case**:
-A persisted object representing one business matter, with state and behavior
-defined by its case type.
+A business matter with a stable identity and state and behavior defined by its case type.
 _Avoid_: workflow instance, process instance
 
 **Case Type**:
@@ -21,7 +20,7 @@ The definition of a kind of case: a state schema and a set of steps.
 _Avoid_: workflow definition, flow
 
 **Case State**:
-The current document of facts belonging to a case.
+The current document of domain facts assembled for a case.
 _Avoid_: context, payload, data
 
 **Step**:
@@ -66,16 +65,12 @@ _Avoid_: login, account, tab
 ### Execution and evidence
 
 **Handler**:
-A step's effect function, which receives current case state and returns the next state.
+A step's domain operation, which observes current case state and changes business facts.
 _Avoid_: task body
 
 **Execution**:
 One recorded run of a step on a case.
 _Avoid_: invocation
-
-**Claim**:
-An execution's exclusive, expiring right to change a case's state.
-_Avoid_: lock, reservation, lease
 
 **Journal**:
 The append-only record of a case's executions and their evidence.
@@ -91,7 +86,7 @@ bug or infrastructure failure is not a refusal.
 _Avoid_: exception, failure
 
 **System runner**:
-The execution entry point used by ingestion and migration to receive per-case
+The execution entry point used by ingestion to receive per-case
 outcomes, including failures.
 _Avoid_: internal execute, silent mode
 

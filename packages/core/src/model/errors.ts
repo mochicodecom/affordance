@@ -3,7 +3,7 @@
  * definitions do not offer.
  *
  * These belong to the model rather than to any one consumer, because
- * addressing is a fact about a step definition and a state — the claim,
+ * addressing is a fact about a step definition and a state — the execution,
  * `explain` and audit replay all ask the same question
  * and get the same two answers back.
  */

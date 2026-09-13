@@ -200,7 +200,7 @@ describe('explain answers a defective selector — the listing published this ex
           },
           key: (i) => i.id,
         },
-        handler: async (state) => state,
+        handler: async () => {},
       }),
     ],
   })

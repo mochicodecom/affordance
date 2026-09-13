@@ -17,8 +17,6 @@ import type {
   ScopedStepHandler,
   StepHandler,
 } from './handler.js'
-import type { RetryOptions, RetryPolicy } from './retry.js'
-import { normalizeRetry } from './retry.js'
 import type { ScopeDeclaration, ScopedConditionMap } from './scope.js'
 import { eraseScopedConditionMap } from './scope.js'
 
@@ -27,7 +25,7 @@ export interface StepOptions<
   TState,
   TActor = unknown,
   TInput = undefined,
-  TCommit = unknown,
+  TRepos = unknown,
 > {
   /** The step's name — unique within its case type; half of a scoped affordance's identity. */
   readonly name: string
@@ -53,14 +51,8 @@ export interface StepOptions<
    * by `validateStepInput` before the handler runs.
    */
   readonly input?: StandardSchemaV1<unknown, TInput>
-  /**
-   * How many times a failed attempt is retried, and how long between
-   * attempts. Defaults to three attempts with exponential backoff; set
-   * `{ maxAttempts: 1 }` to disable retry for this step.
-   */
-  readonly retry?: RetryOptions
-  /** The step's effect function — the only thing that mutates Case State. */
-  readonly handler: StepHandler<TState, TActor, TInput, TCommit>
+  /** The step's domain operation; application writers can also change domain facts. */
+  readonly handler: StepHandler<TState, TActor, TInput, TRepos>
 }
 
 /** Options for a scoped step: an unscoped step plus the scope declaration. */
@@ -69,7 +61,7 @@ export interface ScopedStepOptions<
   TElement,
   TActor = unknown,
   TInput = undefined,
-  TCommit = unknown,
+  TRepos = unknown,
 > {
   readonly name: string
   readonly title?: string
@@ -79,8 +71,7 @@ export interface ScopedStepOptions<
   readonly requires?: ScopedConditionMap<TState, TElement, TActor>
   readonly permits?: ScopedConditionMap<TState, TElement, TActor>
   readonly input?: StandardSchemaV1<unknown, TInput>
-  readonly retry?: RetryOptions
-  readonly handler: ScopedStepHandler<TState, TElement, TActor, TInput, TCommit>
+  readonly handler: ScopedStepHandler<TState, TElement, TActor, TInput, TRepos>
 }
 
 /**
@@ -89,7 +80,7 @@ export interface ScopedStepOptions<
  * The options types above carry the precise authoring shapes; this is the
  * machine-facing normal form.
  */
-export interface StepDefinition<TState, TActor = unknown, TCommit = unknown> {
+export interface StepDefinition<TState, TActor = unknown, TRepos = unknown> {
   readonly name: string
   /** The declared human label, or `null` — clients fall back to `name`. */
   readonly title: string | null
@@ -108,10 +99,8 @@ export interface StepDefinition<TState, TActor = unknown, TCommit = unknown> {
   } | null
   /** The declared input schema, or `null` when the step takes no input. */
   readonly input: StandardSchemaV1 | null
-  /** The normalized retry policy the execution lifecycle applies to this step. */
-  readonly retry: RetryPolicy
   /** The step's handler — invoked only by the execution lifecycle. */
-  readonly handler: ErasedStepHandler<TState, TActor, TCommit>
+  readonly handler: ErasedStepHandler<TState, TActor, TRepos>
 }
 
 /**
@@ -223,7 +212,7 @@ const validateCommon = (options: {
  *   name: 'issue-funding-call',
  *   requires: { escrowReady: (s: Purchase) => s.escrow?.status === 'open' },
  *   permits: { isOrganizer: (_s: Purchase, ctx: ConditionContext<Ops>) => ctx.actor.roles.includes('organizer') },
- *   handler: async (s, ctx) => s,
+ *   handler: async () => {},
  * })
  *
  * // Scoped, standalone form: annotating scope.select anchors both the state
@@ -233,7 +222,7 @@ const validateCommon = (options: {
  *   name: 'escalate-verification',
  *   scope: { select: (s: Purchase) => s.buyers.filter(b => b.verification?.status === 'review'), key: b => b.id },
  *   requires: { flagged: (s: Purchase, ctx) => (ctx.scope as Buyer).verification?.flaggedAt != null },
- *   handler: async (s, ctx) => s,
+ *   handler: async () => {},
  * })
  * ```
  *
@@ -252,31 +241,31 @@ export function step<
   TElement,
   TActor = unknown,
   TInput = undefined,
-  TCommit = unknown,
+  TRepos = unknown,
 >(
-  options: ScopedStepOptions<TState, TElement, TActor, TInput, TCommit>,
-): StepDefinition<TState, TActor, TCommit>
+  options: ScopedStepOptions<TState, TElement, TActor, TInput, TRepos>,
+): StepDefinition<TState, TActor, TRepos>
 export function step<
   TState,
   TActor = unknown,
   TInput = undefined,
-  TCommit = unknown,
+  TRepos = unknown,
 >(
-  options: StepOptions<TState, TActor, TInput, TCommit>,
-): StepDefinition<TState, TActor, TCommit>
-export function step<TState, TActor, TCommit>(
+  options: StepOptions<TState, TActor, TInput, TRepos>,
+): StepDefinition<TState, TActor, TRepos>
+export function step<TState, TActor, TRepos>(
   options:
-    | StepOptions<TState, TActor, unknown, TCommit>
-    | ScopedStepOptions<TState, unknown, TActor, unknown, TCommit>,
-): StepDefinition<TState, TActor, TCommit> {
+    | StepOptions<TState, TActor, unknown, TRepos>
+    | ScopedStepOptions<TState, unknown, TActor, unknown, TRepos>,
+): StepDefinition<TState, TActor, TRepos> {
   const name = validateCommon(options)
   const scoped = 'scope' in options && options.scope !== undefined
-  let scope: StepDefinition<TState, TActor, TCommit>['scope'] = null
+  let scope: StepDefinition<TState, TActor, TRepos>['scope'] = null
   let guard: Guard<TState, TActor>
 
   if (scoped) {
     const declaration = (
-      options as ScopedStepOptions<TState, unknown, TActor, unknown, TCommit>
+      options as ScopedStepOptions<TState, unknown, TActor, unknown, TRepos>
     ).scope
     if (
       typeof declaration !== 'object' ||
@@ -298,7 +287,7 @@ export function step<TState, TActor, TCommit>(
       unknown,
       TActor,
       unknown,
-      TCommit
+      TRepos
     >
     guard = {
       ...(scopedOptions.requires !== undefined && {
@@ -309,7 +298,7 @@ export function step<TState, TActor, TCommit>(
       }),
     }
   } else {
-    const unscoped = options as StepOptions<TState, TActor, unknown, TCommit>
+    const unscoped = options as StepOptions<TState, TActor, unknown, TRepos>
     validateConditionMap(name, 'requires', unscoped.requires, true)
     validateConditionMap(name, 'permits', unscoped.permits, true)
     guard = {
@@ -325,14 +314,13 @@ export function step<TState, TActor, TCommit>(
     guard,
     scope,
     input: options.input ?? null,
-    retry: normalizeRetry(name, options.retry),
     // The one erasure cast for handlers: the authored context (typed input,
     // typed scope element) is what the execution lifecycle constructs; see
     // ErasedStepHandler.
     handler: options.handler as unknown as ErasedStepHandler<
       TState,
       TActor,
-      TCommit
+      TRepos
     >,
   }
 }
@@ -348,13 +336,13 @@ export function step<TState, TActor, TCommit>(
  * contextually, and a scoped step's element type anchors on `scope.select`
  * alone (so `ctx.scope` is the element, with no `undefined` to narrow away).
  */
-export interface BoundStep<TState, TActor = unknown, TCommit = unknown> {
+export interface BoundStep<TState, TActor = unknown, TRepos = unknown> {
   <TElement, TInput = undefined>(
-    options: ScopedStepOptions<TState, TElement, TActor, TInput, TCommit>,
-  ): StepDefinition<TState, TActor, TCommit>
+    options: ScopedStepOptions<TState, TElement, TActor, TInput, TRepos>,
+  ): StepDefinition<TState, TActor, TRepos>
   <TInput = undefined>(
-    options: StepOptions<TState, TActor, TInput, TCommit>,
-  ): StepDefinition<TState, TActor, TCommit>
+    options: StepOptions<TState, TActor, TInput, TRepos>,
+  ): StepDefinition<TState, TActor, TRepos>
 }
 
 /**
@@ -384,14 +372,14 @@ export const actor = <TActor>(): ActorMarker<TActor> => ACTOR_MARKER
  *   name: 'issue-funding-call',
  *   requires: { escrowReady: s => s.escrow.status === 'open' },        // s: inferred from the schema
  *   permits:  { isOrganizer: (_s, ctx) => hasRole(ctx.actor, 'organizer') },
- *   handler: async s => s,
+ *   handler: async () => {},
  * })
  *
  * purchaseStep({
  *   name: 'escalate-verification',
  *   scope: { select: s => s.buyers.filter(b => b.verification.status === 'review'), key: b => b.id },
  *   requires: { flagged: (_s, ctx) => ctx.scope.verification.flaggedAt !== null },  // ctx.scope: Buyer
- *   handler: async s => s,
+ *   handler: async () => {},
  * })
  * ```
  *
@@ -419,12 +407,12 @@ export const actor = <TActor>(): ActorMarker<TActor> => ACTOR_MARKER
 export const stepsOf = <
   S extends StandardSchemaV1,
   TActor = unknown,
-  TCommit = unknown,
+  TRepos = unknown,
 >(
   state: S,
   _actor?: ActorMarker<TActor>,
-  _commit?: CommitContextMarker<TCommit>,
-): BoundStep<StandardSchemaV1.InferOutput<S>, TActor, TCommit> => {
+  _repos?: RepositoriesMarker<TRepos>,
+): BoundStep<StandardSchemaV1.InferOutput<S>, TActor, TRepos> => {
   if (!isStandardSchema(state)) {
     throw new TypeError(
       'stepsOf: state must be a Standard Schema (e.g. a zod schema)',
@@ -456,8 +444,8 @@ export class StepInputValidationError extends AffordanceError {
  * without an input schema accepts only `undefined` and yields `undefined`;
  * anything else is a caller bug and throws.
  */
-export const validateStepInput = async <TState, TActor, TCommit>(
-  definition: StepDefinition<TState, TActor, TCommit>,
+export const validateStepInput = async <TState, TActor, TRepos>(
+  definition: StepDefinition<TState, TActor, TRepos>,
   input: unknown,
 ): Promise<unknown> => {
   if (definition.input === null) {
@@ -474,8 +462,8 @@ export const validateStepInput = async <TState, TActor, TCommit>(
   return result.value
 }
 
-/** Name the transaction/repository context supplied to onCommit callbacks. */
-export interface CommitContextMarker<TCommit> {
-  readonly __commit?: TCommit
+/** Name the transaction/repository context supplied to handlers. */
+export interface RepositoriesMarker<TRepos> {
+  readonly __repositories?: TRepos
 }
-export const commitContext = <TCommit>(): CommitContextMarker<TCommit> => ({})
+export const repositories = <TRepos>(): RepositoriesMarker<TRepos> => ({})

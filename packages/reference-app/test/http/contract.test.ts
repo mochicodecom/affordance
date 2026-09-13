@@ -72,7 +72,7 @@ const execution: ExecutionResult = {
   seq: 4,
   dormancy: null,
   endedAt: null,
-  claimedAt: '2026-08-05T00:00:01.000Z',
+  startedAt: '2026-08-05T00:00:01.000Z',
   committedAt: '2026-08-05T00:00:02.000Z',
 }
 
@@ -90,7 +90,7 @@ describe('the execution payload', () => {
       delta: [{ op: 'add', path: '/json/committed', value: true }],
       dormancy: null,
       endedAt: null,
-      claimedAt: '2026-08-05T00:00:01.000Z',
+      startedAt: '2026-08-05T00:00:01.000Z',
       committedAt: '2026-08-05T00:00:02.000Z',
     })
     expect(JSON.stringify(payload)).not.toContain('the whole case document')
@@ -192,7 +192,7 @@ describe('the journal payload', () => {
     id: 'jrnl:1',
     caseId: 'case:5f1b',
     executionId: 'exec:9a2c',
-    entry: 'claimed',
+    entry: 'started',
     attempt: 1,
     step: 'record-commitment',
     scopeKey: 'buyer:7',

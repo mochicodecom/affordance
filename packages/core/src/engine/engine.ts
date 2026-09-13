@@ -19,12 +19,7 @@ import type {
   JournalEntry,
   JournalFilter,
 } from '../execution/index.js'
-import {
-  DEFAULT_CLAIM_TTL_MS,
-  DEFAULT_HEARTBEAT_MS,
-  executeStep,
-  realTimers,
-} from '../execution/index.js'
+import { executeStep } from '../execution/index.js'
 import type { Instant } from '../guards/index.js'
 import type {
   Correlation,
@@ -37,14 +32,13 @@ import type {
   IngestionResult,
 } from '../ingestion/index.js'
 import { ingest, normalizeIngestion } from '../ingestion/index.js'
-import type {
-  MigrationOptions,
-  MigrationReport,
-  MigrationTransform,
-} from '../migration/index.js'
-import { migrate } from '../migration/index.js'
 import type { AnyCaseType, StepMetadata } from '../model/index.js'
-import type { CaseListOptions, CasePage, EngineStorage } from '../storage.js'
+import type {
+  CaseBinding,
+  CaseListOptions,
+  CasePage,
+  EngineStorage,
+} from '../storage.js'
 import type { CaseHandle } from '../store/index.js'
 import { resolveCase, validateAgainstSchema } from '../store/index.js'
 import type {
@@ -61,18 +55,11 @@ import {
 import { UnknownCaseTypeError } from './errors.js'
 
 /** Options for {@link createEngine}. */
-export interface EngineOptions<TCommit = unknown> {
+export interface EngineOptions {
   /** One coordinated storage implementation for all engine persistence. */
-  readonly storage: EngineStorage<TCommit>
+  readonly storage: EngineStorage
   /** Every case type this engine serves; a loaded case's `case_type` must name one of them. */
-  readonly caseTypes: readonly AnyCaseType<NoInfer<TCommit>>[]
-  /**
-   * How long an Execution's claim survives without a heartbeat (default 30s).
-   * The floor on how long a crashed handler can hold a case.
-   */
-  readonly claimTtlMs?: number
-  /** How often a running handler refreshes its claim (default 5s). */
-  readonly heartbeatMs?: number
+  readonly caseTypes: readonly CaseBinding[]
   /**
    * Event ingestion: how an external event's Actor is derived.
    * Correlation needs no configuration — it is a registry, not a policy.
@@ -80,8 +67,7 @@ export interface EngineOptions<TCommit = unknown> {
   readonly ingestion?: IngestionOptions
   /**
    * Clock for guard evaluation instants, defaulting to the wall clock.
-   * Stored timestamps and claim expiry belong to the adapter's clock;
-   * heartbeat cadence and retry delays use process timers.
+   * Stored timestamps belong to the adapter's clock.
    */
   readonly now?: () => Date
 }
@@ -100,12 +86,11 @@ export interface Engine {
   listCases(options?: CaseListOptions): Promise<CasePage>
 
   /**
-   * Create a case of a registered case type. The initial state is validated
-   * against the type's schema.
+   * Attach metadata to an existing domain record, validating its current state.
    */
-  createCase(
+  attachCase(
     caseTypeName: string,
-    initialState: unknown,
+    options: { reference: string },
   ): Promise<CaseHandle<unknown>>
 
   /**
@@ -124,7 +109,7 @@ export interface Engine {
    * {@link Engine.affordances} for a case already in hand — no second load,
    * no re-validation. Synchronous: a registry read plus the pure
    * computation. The handle must be one this engine issued
-   * ({@link Engine.createCase}, {@link Engine.case}) — their `state` is the
+   * ({@link Engine.attachCase}, {@link Engine.case}) — their `state` is the
    * validated document; a hand-built handle carries no such guarantee.
    * This is how a create route answers with the fresh case's affordances
    * without re-reading what it just wrote.
@@ -143,11 +128,9 @@ export interface Engine {
   ): Promise<AffordanceExplanation>
 
   /**
-   * Execute a step on a case: claim → run → commit. The claim
-   * re-evaluates the guard transactionally — the enforcement moment — so an
-   * affordance that has since gone away rejects with `StepNotAvailableError`
-   * carrying the current unmet conditions, and a case with an Execution
-   * already in flight rejects with `CaseBusyError`.
+   * Execute one short protected domain operation. The adapter serializes
+   * cooperating writers; core reloads state and reevaluates the guard.
+   * Network calls belong outside this operation. Conflicts are never retried silently.
    */
   execute(
     caseId: string,
@@ -220,20 +203,6 @@ export interface Engine {
 
   /** The dead-letter surface: events that arrived and changed nothing, with why. */
   deadLetters(filter?: DeadLetterFilter): Promise<readonly DeadLetter[]>
-
-  /**
-   * Restructure the state of every case of a case type, as journaled system
-   * Executions (float's escape hatch). Idempotent: a case that
-   * already carries the migration's marker is skipped, so re-running is a
-   * no-op and an interrupted run resumes. Reach for it only when no total
-   * condition can read the old shape — see `docs/migration.md`.
-   */
-  migrate(
-    caseTypeName: string,
-    name: string,
-    transform: MigrationTransform,
-    options?: MigrationOptions,
-  ): Promise<MigrationReport>
 }
 
 /**
@@ -242,11 +211,12 @@ export interface Engine {
  * keyed by name, which is all a case row records (definitions
  * float; only the name is persisted).
  */
-export const createEngine = <TCommit>(
-  options: EngineOptions<TCommit>,
-): Engine => {
-  const registry = new Map<string, AnyCaseType<TCommit>>()
-  for (const definition of options.caseTypes) {
+export const createEngine = (options: EngineOptions): Engine => {
+  const registry = new Map<string, AnyCaseType>()
+  for (const binding of options.caseTypes) {
+    if (binding.storage !== options.storage)
+      throw new TypeError('case binding belongs to a different storage adapter')
+    const definition = binding.definition
     if (registry.has(definition.name)) {
       throw new TypeError(
         `createEngine: duplicate case type name '${definition.name}'`,
@@ -255,7 +225,7 @@ export const createEngine = <TCommit>(
     registry.set(definition.name, definition)
   }
 
-  const caseTypeFor = (caseTypeName: string): AnyCaseType<TCommit> => {
+  const caseTypeFor = (caseTypeName: string): AnyCaseType => {
     const definition = registry.get(caseTypeName)
     if (definition === undefined) {
       throw new UnknownCaseTypeError(caseTypeName, [...registry.keys()])
@@ -269,21 +239,18 @@ export const createEngine = <TCommit>(
 
   // The widest environment any subsystem asks for (IngestionEnvironment ⊇
   // ExecutionEnvironment), built once and handed to all of them.
-  const environment: IngestionEnvironment<TCommit> = {
+  const environment: IngestionEnvironment = {
     storage,
     caseTypeFor,
-    claimTtlMs: options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS,
-    heartbeatMs: options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
     ingestion: normalizeIngestion(options.ingestion),
     now,
-    timers: realTimers,
   }
 
   /** Load the case, resolve its type from the registry, validate state against the type's schema. */
   const load = async (
     caseId: string,
   ): Promise<{
-    definition: AnyCaseType<TCommit>
+    definition: AnyCaseType
     snapshot: CaseSnapshot<unknown>
   }> => {
     const { definition, handle, state } = await resolveCase(
@@ -321,14 +288,13 @@ export const createEngine = <TCommit>(
       )
       return { cases, nextCursor: page.nextCursor }
     },
-    createCase: async (caseTypeName, initialState) => {
+    attachCase: async (caseTypeName, { reference }) => {
       const definition = caseTypeFor(caseTypeName)
-      const state = await validateAgainstSchema(
-        definition.state,
-        initialState,
-        'initial state',
+      if (typeof reference !== 'string' || reference.length === 0)
+        throw new TypeError('reference must be a non-empty string')
+      return storage.cases.attach(caseTypeName, reference, (state) =>
+        validateAgainstSchema(definition.state, state, 'domain state'),
       )
-      return storage.cases.create(caseTypeName, state)
     },
     affordances: async (caseId, actor, asOf) => {
       const { definition, snapshot } = await load(caseId)
@@ -357,19 +323,12 @@ export const createEngine = <TCommit>(
     // Rebuilt field by field, not spread: whatever extra properties a
     // caller's object drags along stop here, so the lifecycle only ever
     // sees the options the public interface declares.
-    execute: (
-      caseId,
-      stepName,
-      { actor, scopeKey, input, asOf, claimTtlMs, heartbeatMs, retry },
-    ) =>
+    execute: (caseId, stepName, { actor, scopeKey, input, asOf }) =>
       executeStep(environment, caseId, stepName, {
         actor,
         scopeKey,
         input,
         asOf,
-        claimTtlMs,
-        heartbeatMs,
-        retry,
       }),
     journal: (caseId, filter) => storage.journal.read(caseId, filter),
     case: async (caseId) => {
@@ -393,7 +352,5 @@ export const createEngine = <TCommit>(
     correlations: (caseId, scopeKey) =>
       storage.correlations.list(caseId, scopeKey),
     deadLetters: (filter) => storage.deliveries.deadLetters(filter),
-    migrate: (caseTypeName, name, transform, migrationOptions) =>
-      migrate(environment, caseTypeName, name, transform, migrationOptions),
   }
 }
