@@ -89,7 +89,7 @@ export function HistoryPanel({
               'id' in entry.actor
                 ? scopeLabel(state, String((entry.actor as { id: unknown }).id))
                 : JSON.stringify(entry.actor)
-            // The journal records each execution twice — claimed, then
+            // The journal records each execution twice — started, then
             // completed. Unlabeled, the pair reads as a duplicate; labeled,
             // it reads as what it is.
             const kind = typeof entry.entry === 'string' ? entry.entry : ''

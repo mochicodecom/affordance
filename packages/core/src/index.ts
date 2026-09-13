@@ -31,9 +31,8 @@ export { createEngine, UnknownCaseTypeError } from './engine/index.js'
 export type { AffordanceErrorCode } from './errors.js'
 // ── The error taxonomy: every deliberate refusal, one closed code set ──────
 export { AffordanceError, isAffordanceError, REFUSAL_CODES } from './errors.js'
+export { ExecutionIndeterminateError } from './execution/errors.js'
 export type {
-  ClaimedEntryInput,
-  ClaimedJournalEntry,
   CompletedEntryInput,
   ExecuteOptions,
   ExecutionRecord,
@@ -47,15 +46,15 @@ export type {
   JournalError,
   JournalFilter,
   PatchOp,
+  StartedEntryInput,
+  StartedJournalEntry,
   StateDelta,
 } from './execution/index.js'
 // ── Execution records: what came back, what is journaled ───────────────────
 export {
-  CaseBusyError,
-  ClaimLostError,
   diffState,
   foldExecutions,
-  isClaimedEntry,
+  isStartedEntry,
   jsonEqual,
   replayGuard,
   StepExecutionError,
@@ -95,28 +94,16 @@ export type {
 } from './ingestion/index.js'
 // ── Ingestion: events in, correlations, dead letters ───────────────────────
 export { externalActor, routedStep } from './ingestion/index.js'
-export type {
-  MigrationFailure,
-  MigrationOptions,
-  MigrationProgress,
-  MigrationReport,
-  MigrationTransform,
-} from './migration/index.js'
 // ── Migration: the journaled restructure ───────────────────────────────────
-export { hasMigrated, migrationStepName } from './migration/index.js'
 export type {
   ActorMarker,
   AnyCaseType,
   BoundStep,
   CaseTypeDefinition,
   CaseTypeOptions,
-  CommitContextMarker,
-  CommitEffect,
-  CommitWrite,
   CorrelationRequest,
   HandlerContext,
-  RetryOptions,
-  RetryPolicy,
+  RepositoriesMarker,
   ScopeDeclaration,
   ScopedConditionContext,
   ScopedHandlerContext,
@@ -133,8 +120,7 @@ export type {
 export {
   actor,
   caseType,
-  commitContext,
-  DEFAULT_RETRY,
+  repositories,
   SCOPE_FAILURE_CONDITION,
   ScopeKeyError,
   StepInputValidationError,
@@ -143,6 +129,12 @@ export {
 } from './model/index.js'
 export type { JsonObject, JsonValue } from './serialization.js'
 export { SerializationError } from './serialization.js'
-export type { CaseListOptions, CasePage, EngineStorage } from './storage.js'
+export type {
+  CaseBinding,
+  CaseListOptions,
+  CasePage,
+  EngineStorage,
+  StoredCase,
+} from './storage.js'
 export type { CaseHandle, Dormancy } from './store/index.js'
 export { CaseNotFoundError, CaseStateValidationError } from './store/index.js'

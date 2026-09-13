@@ -20,7 +20,7 @@ import { isStandardSchema, looksLikeStepDefinition } from './step.js'
 export interface CaseTypeOptions<
   S extends StandardSchemaV1,
   TActor = unknown,
-  TCommit = unknown,
+  TRepos = unknown,
 > {
   /**
    * The case type's name — what the persisted case records. Only the name is
@@ -34,7 +34,7 @@ export interface CaseTypeOptions<
   readonly steps: readonly StepDefinition<
     StandardSchemaV1.InferOutput<S>,
     TActor,
-    TCommit
+    TRepos
   >[]
 }
 
@@ -42,20 +42,20 @@ export interface CaseTypeOptions<
 export interface CaseTypeDefinition<
   S extends StandardSchemaV1 = StandardSchemaV1,
   TActor = unknown,
-  TCommit = unknown,
+  TRepos = unknown,
 > {
   readonly name: string
   readonly state: S
   readonly steps: readonly StepDefinition<
     StandardSchemaV1.InferOutput<S>,
     TActor,
-    TCommit
+    TRepos
   >[]
   /** Look up a step by name; `undefined` when the case type declares no such step. */
   readonly getStep: (
     name: string,
   ) =>
-    | StepDefinition<StandardSchemaV1.InferOutput<S>, TActor, TCommit>
+    | StepDefinition<StandardSchemaV1.InferOutput<S>, TActor, TRepos>
     | undefined
 }
 
@@ -72,11 +72,7 @@ export interface CaseTypeDefinition<
 // or narrower schema type is assignable (S feeds both the state property and
 // condition/handler parameters), so any narrower existential would reject
 // every concrete schema.
-export type AnyCaseType<TCommit = unknown> = CaseTypeDefinition<
-  any,
-  any,
-  TCommit
->
+export type AnyCaseType<TRepos = unknown> = CaseTypeDefinition<any, any, TRepos>
 
 /**
  * Define a case type. Validates loudly at construction time:
@@ -89,10 +85,10 @@ export type AnyCaseType<TCommit = unknown> = CaseTypeDefinition<
 export const caseType = <
   S extends StandardSchemaV1,
   TActor = unknown,
-  TCommit = unknown,
+  TRepos = unknown,
 >(
-  options: CaseTypeOptions<S, TActor, TCommit>,
-): CaseTypeDefinition<S, TActor, TCommit> => {
+  options: CaseTypeOptions<S, TActor, TRepos>,
+): CaseTypeDefinition<S, TActor, TRepos> => {
   const { name, state, steps } = options
   if (typeof name !== 'string' || name.trim() === '') {
     throw new TypeError('caseType: name must be a non-empty string')
@@ -110,7 +106,7 @@ export const caseType = <
 
   const byName = new Map<
     string,
-    StepDefinition<StandardSchemaV1.InferOutput<S>, TActor, TCommit>
+    StepDefinition<StandardSchemaV1.InferOutput<S>, TActor, TRepos>
   >()
   for (const definition of steps) {
     if (!looksLikeStepDefinition(definition)) {

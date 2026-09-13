@@ -3,7 +3,7 @@
  *
  * "Why was this affordance available last Tuesday?" is answered from the
  * journaled record of what the system actually believed at the time, never by
- * re-deriving the past through present-day code. A `claimed` entry
+ * re-deriving the past through present-day code. A `started` entry
  * carries everything that answer needs: the guard evaluation, the instant it
  * was made as of, the Actor, and the Case State it was evaluated against.
  *
@@ -27,7 +27,7 @@ import { addressTarget, evaluateTarget } from '../model/index.js'
 import { CaseStateValidationError } from '../store/errors.js'
 import { validateCaseState } from '../store/resolve.js'
 import { jsonEqual } from './delta.js'
-import type { ClaimedJournalEntry } from './journal.js'
+import type { StartedJournalEntry } from './journal.js'
 
 /** What today's definitions make of a journaled moment. */
 export interface GuardReplay {
@@ -58,18 +58,18 @@ export interface GuardReplay {
 }
 
 /**
- * Re-evaluate a `claimed` entry's guard against the state, actor and instant
- * the entry recorded. Only `claimed` entries carry an evaluation to
+ * Re-evaluate a `started` entry's guard against the state, actor and instant
+ * the entry recorded. Only `started` entries carry an evaluation to
  * reproduce, and the parameter type says so — narrow a read entry with
- * `isClaimedEntry` first. The adapter has already decoded the full snapshot;
+ * `isStartedEntry` first. The adapter has already decoded the full snapshot;
  * replay validates it with today's schema and uses that schema's output,
  * including defaults and transformations, for addressing and guard evaluation.
  * Async schemas make this function asynchronous. Schema rejection is reported
  * as unaddressable; a validator that throws still propagates its error.
  */
-export const replayGuard = async <TCommit>(
-  definition: AnyCaseType<TCommit>,
-  entry: ClaimedJournalEntry,
+export const replayGuard = async <TRepos>(
+  definition: AnyCaseType<TRepos>,
+  entry: StartedJournalEntry,
 ): Promise<GuardReplay> => {
   const identity = {
     executionId: entry.executionId,

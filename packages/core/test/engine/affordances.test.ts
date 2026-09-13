@@ -243,7 +243,7 @@ describe('scope-key integrity (affordance identity)', () => {
             },
             key: (i) => i.id,
           },
-          handler: async (state) => state,
+          handler: async () => {},
         }),
       ],
     })

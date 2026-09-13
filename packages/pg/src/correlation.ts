@@ -34,7 +34,7 @@ const toCorrelation = (row: CorrelationRow): Correlation => ({
  * there: a retried handler attempt registering the same envelope again is
  * not an error, it is the same fact. Pass any
  * {@link Queryable} — from a handler this is the commit transaction, via
- * `ctx.correlate` or `ctx.onCommit`.
+ * `ctx.correlate` or `transaction-bound repositories`.
  */
 export const registerCorrelation = async (
   db: Queryable,

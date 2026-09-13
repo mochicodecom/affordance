@@ -10,12 +10,12 @@
  *    remaining callers receive `duplicate`.
  * 2. **Correlate.** The external identifier is resolved to (case, scope,
  *    step) through the registry the initiating handler wrote.
- * 3. **Execute.** Through the ordinary claim → run → commit, with the
+ * 3. **Execute.** Through the ordinary load → guard → domain operation → evidence, with the
  *    external system as the journaled actor. Ingestion has no privileged
  *    path: the guard still decides, transactionally.
  *
  * What is *not* allowed is a quiet drop. An event nothing can route, an event
- * whose step the guard refuses, an event whose case is busy — each lands in
+ * whose step the guard refuses, or whose operation rolls back — each lands in
  * the same table with a status and a reason, which is the dead-letter
  * surface. "The webhook definitely arrived, so why is the case still waiting"
  * is a question this table answers without anyone reading a log file.
@@ -88,7 +88,7 @@ export const REOPENS_ON_REDELIVERY: Record<DeadLetterReason, boolean> = {
   unrouted: false,
   'no-step': false,
   'step-not-available': false,
-  'case-busy': true,
+
   'invalid-input': false,
   'not-found': false,
   'bad-request': false,
@@ -172,8 +172,7 @@ export interface IngestionSettings {
  * of them — named here so that contract is a type, not a coincidence of an
  * object literal.
  */
-export interface IngestionEnvironment<TCommit = unknown>
-  extends ExecutionEnvironment<TCommit> {
+export interface IngestionEnvironment extends ExecutionEnvironment {
   readonly ingestion: IngestionSettings
 }
 
@@ -251,8 +250,8 @@ export const routedStep = (
  * succeed. Infrastructure failures (the database is gone) do still throw,
  * because those the caller must not acknowledge.
  */
-export const ingest = async <TCommit>(
-  env: IngestionEnvironment<TCommit>,
+export const ingest = async (
+  env: IngestionEnvironment,
   event: ExternalEvent,
 ): Promise<IngestionResult> => {
   const idempotencyKey = idempotencyKeyFor(event)

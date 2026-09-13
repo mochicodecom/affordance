@@ -23,7 +23,7 @@ export interface Queryable {
  * checkout the same way.
  */
 export interface PoolLike extends Queryable {
-  connect(): Promise<Queryable & { release(): void }>
+  connect(): Promise<Queryable & { release(discard?: boolean): void }>
 }
 
 /**
@@ -41,7 +41,7 @@ export type DatabaseAccess =
 
 /**
  * The plain query surface of either arm — what a single self-contained
- * statement (a journal read, a heartbeat) runs against, where pool vs.
+ * statement (a journal read, a correlation lookup) runs against, where pool vs.
  * client makes no difference.
  */
 export const queryableOf = (db: DatabaseAccess): Queryable =>

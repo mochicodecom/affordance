@@ -4,7 +4,6 @@ export { mintId } from './ids.js'
 export type { CaseTypeLookup, ResolvedCase } from './resolve.js'
 export {
   resolveCase,
-  resolveStoredState,
   validateCaseState,
 } from './resolve.js'
 export type { CaseHandle, Dormancy, StoredCase } from './store.js'

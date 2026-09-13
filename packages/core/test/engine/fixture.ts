@@ -61,12 +61,9 @@ export const buyerActor: PurchaseActor = { id: 'buyer_a', roles: ['buyer'] }
 
 /** Invocation counter proving the engine never touches a handler (the execution lifecycle's job). */
 export const handlerRuns = { count: 0 }
-const countingHandler =
-  () =>
-  async (state: Purchase): Promise<Purchase> => {
-    handlerRuns.count += 1
-    return state
-  }
+const countingHandler = () => async (): Promise<void> => {
+  handlerRuns.count += 1
+}
 
 const isOrganizer = (
   _s: Purchase,

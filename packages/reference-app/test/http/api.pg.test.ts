@@ -1,4 +1,4 @@
-import { createPgStorage } from '@affordance/pg'
+import { httpEngine } from './fixture.js'
 /**
  * The adapter and the contract, against a real engine.
  *
@@ -9,8 +9,6 @@ import { createPgStorage } from '@affordance/pg'
  */
 
 import { randomUUID } from 'node:crypto'
-import { createEngine } from '@affordance/core'
-import { testPool } from '@affordance/testkit'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import type {
@@ -21,12 +19,7 @@ import type {
 import { createAffordanceApi } from '../../src/http/index.js'
 import { buyerA, buyerB, organizer, purchase, twoBuyers } from './fixture.js'
 
-const pool = testPool()
-
-const engine = createEngine({
-  storage: createPgStorage({ db: { pool } }),
-  caseTypes: [purchase],
-})
+const engine = httpEngine()
 const api = createAffordanceApi({
   engine,
   basePath: '/api',
@@ -182,7 +175,7 @@ describe('who sees what', () => {
       actor: buyerA,
     })
 
-    // The claimed entry recorded the full guard evaluation and the Case
+    // The started entry recorded the full guard evaluation and the Case
     // State it ran against. buyer_b, told only `permitted: false` by the
     // affordances read, must not find the permits rule — or the state —
     // waiting one request away in the journal.
@@ -205,9 +198,9 @@ describe('who sees what', () => {
     const entries = (
       audit.body as { entries: { entry: string; state?: unknown }[] }
     ).entries
-    const claimed = entries.find((entry) => entry.entry === 'claimed')
+    const started = entries.find((entry) => entry.entry === 'started')
     expect(JSON.stringify(audit.body)).toContain('isThisBuyer')
-    expect(claimed?.state).toBeDefined()
+    expect(started?.state).toBeDefined()
   })
 
   it('tells an ops console everything, when the host asks for it', async () => {
@@ -358,7 +351,7 @@ describe('executing a step', () => {
     const valid = await call({
       method: 'GET',
       path: `/cases/${caseId}/journal`,
-      query: { entry: 'claimed,completed' },
+      query: { entry: 'started,completed' },
       actor: organizer,
     })
     expect(valid.status).toBe(200)

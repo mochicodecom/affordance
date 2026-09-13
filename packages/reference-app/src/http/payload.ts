@@ -131,7 +131,7 @@ export interface ExecutionDescriptor {
   readonly delta: StateDeltaPayload
   readonly dormancy: DormancyPayload | null
   readonly endedAt: string | null
-  readonly claimedAt: string
+  readonly startedAt: string
   readonly committedAt: string
 }
 
@@ -178,7 +178,7 @@ export interface JournalErrorPayload {
  * One journal entry on the wire.
  *
  * Not the framework's stored record verbatim: the journal is a read surface
- * like any other, so what a `claimed` entry recorded for the audit is
+ * like any other, so what a `started` entry recorded for the audit is
  * filtered for the audience before it leaves. Under `permitted` visibility
  * the guard's `permits` conditions are dropped from `guard.conditions` and
  * the evaluated-against Case State is omitted entirely; under `all` both are
@@ -200,16 +200,16 @@ export interface JournalEntryPayload {
   readonly actor: unknown
   /** The step input, post-validation, or `null`. */
   readonly input: unknown
-  /** The instant the claim's guard re-evaluation was made as of, on `claimed` entries. */
+  /** The instant the claim's guard re-evaluation was made as of, on `started` entries. */
   readonly asOf: string | null
-  /** The claim-time guard evaluation, conditions filtered for the audience. */
+  /** The enforcement-time guard evaluation, conditions filtered for the audience. */
   readonly guard: GuardEvaluationPayload | null
   /** The Case State the guard ran against — present only under `all` visibility. */
   readonly state?: unknown
   /** The committed state delta, on `completed` entries. */
   readonly delta: StateDeltaPayload | null
   readonly dormancy: DormancyPayload | null
-  /** The failure, on `attempt-failed` / `failed` / `expired` entries. */
+  /** The failure, on optional `failed` diagnostic entries. */
   readonly error: JournalErrorPayload | null
   readonly recordedAt: string
 }

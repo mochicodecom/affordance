@@ -1,13 +1,13 @@
-import type { CaseRepository } from '@affordance/core/storage'
-import { deserializeValue } from '@affordance/core/storage'
+import type { CaseRepository, StoredCase } from '@affordance/core/storage'
 import { FRAMEWORK_SCHEMA } from './bootstrap.js'
 import type { Queryable } from './queryable.js'
-import { type CaseRow, toHandle } from './store.js'
+import type { CaseRow } from './store.js'
 
 /** The cursor preserves Postgres timestamp precision, including sub-millisecond ties. */
 export const listCases = async (
   db: Queryable,
   options: Parameters<CaseRepository['list']>[0],
+  hydrate: (row: CaseRow) => Promise<StoredCase>,
 ) => {
   const types = [...options.caseTypeNames].sort()
   const filter = JSON.stringify([types, options.includeEnded === true])
@@ -31,7 +31,7 @@ export const listCases = async (
     }
   }
   const { rows } = await db.query<CaseRow & { cursor_created_at: string }>(
-    `select id, case_type, state, seq, ended_at, created_at, updated_at,
+    `select id, case_type, reference, seq, ended_at, created_at, updated_at,
             created_at::text as cursor_created_at
      from ${FRAMEWORK_SCHEMA}.cases
      where case_type = any($1::text[]) and ($2::boolean or ended_at is null)
@@ -48,9 +48,7 @@ export const listCases = async (
   const selected = rows.slice(0, options.limit)
   const last = selected.at(-1)
   return {
-    cases: selected.map((row) =>
-      toHandle(row, deserializeValue(row.state, `case '${row.id}' state`)),
-    ),
+    cases: await Promise.all(selected.map(hydrate)),
     nextCursor:
       rows.length > options.limit && last !== undefined
         ? Buffer.from(

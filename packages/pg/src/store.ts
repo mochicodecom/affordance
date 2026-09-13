@@ -1,175 +1,64 @@
 import type { CaseHandle, Dormancy } from '@affordance/core'
 import { CaseNotFoundError } from '@affordance/core'
-import {
-  deserializeValue,
-  mintId,
-  serializeValue,
-  validateAgainstSchema,
-} from '@affordance/core/storage'
-import type { StandardSchemaV1 } from '@standard-schema/spec'
-import { FRAMEWORK_SCHEMA } from './bootstrap.js'
+import { mintId } from '@affordance/core/storage'
 import type { Queryable, Transaction } from './queryable.js'
-
-const CASES = `${FRAMEWORK_SCHEMA}.cases`
-const CASE_COLUMNS =
-  'id, case_type, state, seq, ended_at, created_at, updated_at'
-
-/** Row shape of `affordance.cases` (int8 arrives as text from the pg driver). */
-export type CaseRow = {
+export const CASE_COLUMNS =
+  'id, case_type, reference, seq, ended_at, created_at, updated_at'
+export interface CaseRow {
   id: string
   case_type: string
-  state: unknown
+  reference: string
   seq: string | number
   ended_at: Date | null
   created_at: Date
   updated_at: Date
 }
-
-export const toHandle = <State>(
-  row: CaseRow,
-  state: State,
-): CaseHandle<State> => ({
+export const toHandle = <S>(row: CaseRow, state: S): CaseHandle<S> => ({
   id: row.id,
+  reference: row.reference,
   caseTypeName: row.case_type,
   state,
-  // Number() is safe: seq counts executions of one human-paced case and will
-  // never approach 2^53.
   seq: Number(row.seq),
   endedAt: row.ended_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
-
-/**
- * `createCase` against an explicit {@link Queryable} — the shared-transaction
- * seam. The schema output is encoded with core's format and persisted as one
- * complete jsonb document, including its runtime type metadata.
- */
-export const insertCase = async <S extends StandardSchemaV1>(
-  db: Queryable,
-  caseTypeName: string,
-  stateSchema: S,
-  initialState: StandardSchemaV1.InferInput<S>,
-): Promise<CaseHandle<StandardSchemaV1.InferOutput<S>>> => {
-  const state = await validateAgainstSchema(
-    stateSchema,
-    initialState,
-    'initial state',
-  )
-  return insertStoredCase(db, caseTypeName, state)
-}
-
-export const insertStoredCase = async <TState>(
-  db: Queryable,
-  caseTypeName: string,
-  state: TState,
-): Promise<CaseHandle<TState>> => {
-  const id = mintId('case')
-  const { rows } = await db.query<CaseRow>(
-    `insert into ${CASES} (id, case_type, state)
-     values ($1, $2, $3::jsonb)
-     returning ${CASE_COLUMNS}`,
-    [
-      id,
-      caseTypeName,
-      JSON.stringify(serializeValue(state, `case '${id}' state`)),
-    ],
-  )
-  const row = rows[0]
-  if (!row) throw new Error(`insert into ${CASES} returned no row`)
-  return toHandle(row, state)
-}
-
-/** `loadCase` against an explicit {@link Queryable} — the shared-transaction seam. */
-export const selectCase = async <S extends StandardSchemaV1>(
-  db: Queryable,
+export const selectMetadata = async (
+  q: Queryable,
   id: string,
-  stateSchema: S,
-): Promise<CaseHandle<StandardSchemaV1.InferOutput<S>>> => {
-  const handle = await selectCaseUntyped(db, id)
-  const state = await validateAgainstSchema(
-    stateSchema,
-    handle.state,
-    'stored state',
-  )
-  return { ...handle, state }
-}
-
-/**
- * Load a Case by id with the stored state **unvalidated** (`unknown`).
- *
- * Additive export for the engine: the engine learns which state
- * schema applies only *from* the loaded row — `case_type` names the
- * registered case type — so it must read the row before it can validate.
- * Every other caller should prefer {@link selectCase} / `loadCase`, which
- * validate; whoever consumes this handle owns validating `state` against the
- * type's schema before trusting it.
- */
-export const selectCaseUntyped = async (
-  db: Queryable,
-  id: string,
-): Promise<CaseHandle<unknown>> => {
-  const { rows } = await db.query<CaseRow>(
-    `select ${CASE_COLUMNS} from ${CASES} where id = $1`,
+  lock = false,
+): Promise<CaseRow> => {
+  const { rows } = await q.query<CaseRow>(
+    `select ${CASE_COLUMNS} from affordance.cases where id = $1${lock ? ' for update' : ''}`,
     [id],
   )
-  const row = rows[0]
-  if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, deserializeValue(row.state, `case '${row.id}' state`))
+  if (!rows[0]) throw new CaseNotFoundError(id)
+  return rows[0]
 }
-
-/**
- * Load a Case by id **for update** — `select … for update`, so the row lock is
- * held until the calling transaction ends.
- *
- * This is the execution lifecycle's serialization point: the claim and the
- * commit both take the case row's lock first, which is what makes the
- * one-in-flight-execution check (and an expired claim's takeover) a decision
- * no two transactions can make concurrently.
- */
-export const selectCaseForUpdate = async (
+export const attachMetadata = async (
+  tx: Transaction,
+  name: string,
+  reference: string,
+): Promise<CaseRow> => {
+  const { rows } = await tx.query<CaseRow>(
+    `insert into affordance.cases (id, case_type, reference) values ($1,$2,$3)
+    on conflict (case_type, reference) do update set reference = excluded.reference returning ${CASE_COLUMNS}`,
+    [mintId('case'), name, reference],
+  )
+  if (!rows[0]) throw new Error('attachment returned no row')
+  return rows[0]
+}
+export const advanceCase = async (
   tx: Transaction,
   id: string,
-): Promise<CaseHandle<unknown>> => {
+  dormancy: Dormancy | null,
+): Promise<CaseRow> => {
   const { rows } = await tx.query<CaseRow>(
-    `select ${CASE_COLUMNS} from ${CASES} where id = $1 for update`,
-    [id],
+    `update affordance.cases set seq = seq + 1, updated_at = now(),
+    ended_at = case when $2::text = 'ended' then now() when $2::text = 'reopened' then null else ended_at end
+    where id = $1 returning ${CASE_COLUMNS}`,
+    [id, dormancy],
   )
-  const row = rows[0]
-  if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, deserializeValue(row.state, `case '${row.id}' state`))
-}
-
-/** The dormancy transition a committing Execution applies to the case row (`end()` / `reopen()`). */
-
-/**
- * Write the next Case State, bump `seq`, and apply the Execution's dormancy
- * transition, if any: `'ended'` stamps `ended_at`, `'reopened'` clears it,
- * `null` leaves it exactly as it was. The state document is **not** validated
- * here — the execution lifecycle validates the handler's return against the
- * case type's schema before calling this, and reports a failure there.
- */
-export const updateCaseState = async (
-  tx: Transaction,
-  id: string,
-  state: unknown,
-  dormancy: Dormancy | null = null,
-): Promise<CaseHandle<unknown>> => {
-  const { rows } = await tx.query<CaseRow>(
-    `update ${CASES}
-     set state = $2::jsonb,
-         seq = seq + 1,
-         ended_at = case
-           when $3::text = 'ended' then now()
-           when $3::text = 'reopened' then null
-           else ended_at
-         end,
-         updated_at = now()
-     where id = $1
-     returning ${CASE_COLUMNS}`,
-    [id, JSON.stringify(serializeValue(state, `case '${id}' state`)), dormancy],
-  )
-  const row = rows[0]
-  if (!row) throw new CaseNotFoundError(id)
-  return toHandle(row, deserializeValue(row.state, `case '${row.id}' state`))
+  if (!rows[0]) throw new CaseNotFoundError(id)
+  return rows[0]
 }

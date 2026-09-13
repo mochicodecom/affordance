@@ -8,9 +8,9 @@
 
 import type { CaseTypeDefinition } from '@affordance/core'
 import { caseType } from '@affordance/core'
+import type { PurchaseRepositories } from './repository.js'
 import type { PurchaseActor } from './state.js'
 import { PurchaseState } from './state.js'
-import type { PurchaseProviders } from './steps.js'
 import {
   acceptShortWire,
   clearEnhancedReview,
@@ -44,22 +44,24 @@ export const HOUSE_PURCHASE = 'house-purchase'
  * them: `record-deed` is guarded on the first, so being offered
  * `record-deed` *is* being told the purchase closed.
  */
-export const createPurchaseDefinition = (
-  services: PurchaseProviders,
-): CaseTypeDefinition<typeof PurchaseState, PurchaseActor> =>
+export const createPurchaseDefinition = (): CaseTypeDefinition<
+  typeof PurchaseState,
+  PurchaseActor,
+  PurchaseRepositories
+> =>
   caseType({
     name: HOUSE_PURCHASE,
     state: PurchaseState,
     steps: [
-      ...createPurchaseSetup(services),
+      ...createPurchaseSetup(),
       recordEscrowAccount,
       inviteBuyer,
       recordCommitment,
-      createStartVerification(services),
+      createStartVerification(),
       recordVerificationResult,
       escalateVerification,
       clearEnhancedReview,
-      createSendAgreement(services),
+      createSendAgreement(),
       recordSignature,
       issueFundingCall,
       recordWire,

@@ -1,39 +1,33 @@
-/** A test adapter with real rollback, serialization and repository commit effects.
- * Its maps never escape; reads return copies. No SQL-shaped test doubles.
- */
-
+/** Independent in-memory domain adapter; real snapshots, exclusion, rollback and evidence. */
+import type { StandardSchemaV1 } from '@standard-schema/spec'
 import type {
+  CaseTypeDefinition,
   Correlation,
   DeadLetter,
   ExternalEvent,
   JournalEntry,
+  JournalEntryInput,
 } from '../../src/index.js'
 import { CaseNotFoundError } from '../../src/index.js'
 import type {
   DeliveryRecord,
   DeliverySettlement,
   EngineStorage,
-  HeldClaim,
   StoredCase,
 } from '../../src/storage.js'
 import {
+  boundCase,
   deserializeValue,
   mintId,
   projectEntry,
   serializeValue,
 } from '../../src/storage.js'
-import type { AdapterFixture, TestCommit } from './contract.js'
 
-const recordedCopy = (value: unknown): unknown =>
-  deserializeValue(JSON.parse(JSON.stringify(serializeValue(value))))
-
-export const memoryAdapter = (): AdapterFixture => {
+const copy = <T>(v: T): T => deserializeValue(serializeValue(v)) as T
+export const createMemoryStorage = () => {
   let data = {
     cases: new Map<string, StoredCase>(),
-    claims: new Map<
-      string,
-      { -readonly [K in keyof Omit<HeldClaim, 'expired'>]: HeldClaim[K] }
-    >(),
+    domains: new Map<string, unknown>(),
     journal: [] as JournalEntry[],
     correlations: new Map<string, Correlation>(),
     deliveries: new Map<
@@ -41,195 +35,160 @@ export const memoryAdapter = (): AdapterFixture => {
       DeliveryRecord &
         Omit<DeliverySettlement, 'status'> & { event: ExternalEvent }
     >(),
-    records: [] as string[],
   }
-  // Serialize atomic operations (handlers run outside this queue).
+  const factories = new Map<
+    string,
+    (read: () => unknown, write: (v: unknown) => void) => unknown
+  >()
   let tail = Promise.resolve()
   const atomic = async <T>(fn: () => Promise<T>): Promise<T> => {
     const previous = tail
     let release!: () => void
-    tail = new Promise<void>((resolve) => {
-      release = resolve
+    tail = new Promise<void>((r) => {
+      release = r
     })
     await previous
     const before = structuredClone(data)
     try {
       return await fn()
-    } catch (error) {
+    } catch (e) {
       data = before
-      throw error
+      throw e
     } finally {
       release()
     }
   }
-  const get = (id: string) => {
+  const get = (id: string): StoredCase => {
     const row = data.cases.get(id)
-    if (row === undefined) throw new CaseNotFoundError(id)
-    return structuredClone(row)
+    if (!row) throw new CaseNotFoundError(id)
+    if (!data.domains.has(row.reference))
+      throw new Error('domain record missing')
+    return { ...copy(row), state: copy(data.domains.get(row.reference)) }
   }
-  const key = (system: string, externalId: string) =>
-    JSON.stringify([system, externalId])
-  const correlation: EngineStorage<TestCommit>['correlations']['register'] =
-    async (r) => {
-      const address = key(r.system, r.externalId)
-      const previous = data.correlations.get(address)
-      const stored: Correlation = {
-        id: previous?.id ?? mintId('correlation'),
-        system: r.system,
-        externalId: r.externalId,
-        caseId: r.caseId,
-        scopeKey: r.scopeKey ?? null,
-        step: r.step ?? null,
-        metadata: r.metadata ?? null,
-        createdAt: previous?.createdAt ?? new Date().toISOString(),
-      }
-      data.correlations.set(address, structuredClone(stored))
-      return structuredClone(stored)
+  const key = (s: string, id: string) => JSON.stringify([s, id])
+  const correlation: EngineStorage['correlations']['register'] = async (r) => {
+    const previous = data.correlations.get(key(r.system, r.externalId))
+    const value: Correlation = {
+      ...r,
+      id: previous?.id ?? mintId('correlation'),
+      scopeKey: r.scopeKey ?? null,
+      step: r.step ?? null,
+      metadata: r.metadata ?? null,
+      createdAt: previous?.createdAt ?? new Date().toISOString(),
     }
-  const append: EngineStorage<TestCommit>['execution']['appendEntry'] = async (
-    input,
-  ) => {
-    const projected = projectEntry(input)
-    const entry: JournalEntry = {
-      ...projected,
-      actor: recordedCopy(projected.actor),
-      input: recordedCopy(projected.input),
-      state: recordedCopy(projected.state),
+    data.correlations.set(key(r.system, r.externalId), copy(value))
+    return copy(value)
+  }
+  const append = async (input: JournalEntryInput) => {
+    const value: JournalEntry = {
+      ...copy(projectEntry(input)),
       id: mintId('journal'),
       ordinal: data.journal.length + 1,
       recordedAt: new Date().toISOString(),
     }
-    data.journal.push(structuredClone(entry))
-    return entry
+    data.journal.push(value)
+    return copy(value)
   }
-  const context: TestCommit = {
-    record: async (message) => {
-      data.records.push(message)
-    },
-    correlated: async (system, externalId) =>
-      data.correlations.has(key(system, externalId)),
-  }
-  const storage: EngineStorage<TestCommit> = {
+  const storage: EngineStorage = {
     cases: {
-      create: (caseTypeName, state) =>
+      attach: (caseTypeName, reference, validate) =>
         atomic(async () => {
+          if (!data.domains.has(reference))
+            throw new Error('domain record missing')
+          const state = await validate(copy(data.domains.get(reference)))
+          const found = [...data.cases.values()].find(
+            (c) => c.caseTypeName === caseTypeName && c.reference === reference,
+          )
+          if (found) return { ...copy(found), state }
           const row: StoredCase = {
             id: mintId('case'),
+            reference,
             caseTypeName,
-            state: recordedCopy(state),
+            state: undefined,
             seq: 0,
             endedAt: null,
             createdAt: new Date(),
             updatedAt: new Date(),
           }
           data.cases.set(row.id, row)
-          return structuredClone(row)
+          return { ...copy(row), state }
         }),
       get: (id) => atomic(async () => get(id)),
-      list: (options) =>
+      list: (opts) =>
         atomic(async () => {
           const all = [...data.cases.values()]
             .filter(
               (c) =>
-                options.caseTypeNames.includes(c.caseTypeName) &&
-                (options.includeEnded || c.endedAt === null),
+                opts.caseTypeNames.includes(c.caseTypeName) &&
+                (opts.includeEnded || c.endedAt === null),
             )
             .sort(
               (a, b) =>
                 b.createdAt.getTime() - a.createdAt.getTime() ||
-                (a.id < b.id ? 1 : -1),
+                b.id.localeCompare(a.id),
             )
-          const after =
-            options.cursor === undefined
-              ? null
-              : (JSON.parse(options.cursor) as { time: number; id: string })
-          const rows = all.filter(
+          const filter = JSON.stringify([
+            opts.caseTypeNames.slice().sort(),
+            opts.includeEnded === true,
+          ])
+          let after: { time: number; id: string; filter: string } | null = null
+          if (opts.cursor) {
+            after = JSON.parse(opts.cursor)
+            if (after?.filter !== filter) throw new TypeError('changed filters')
+          }
+          const remaining = all.filter(
             (c) =>
-              after === null ||
+              !after ||
               c.createdAt.getTime() < after.time ||
               (c.createdAt.getTime() === after.time && c.id < after.id),
           )
-          const selected = rows.slice(0, options.limit)
+          const selected = remaining.slice(0, opts.limit)
           const last = selected.at(-1)
           return {
-            cases: structuredClone(selected),
+            cases: selected.map((c) => get(c.id)),
             nextCursor:
-              rows.length > options.limit && last
+              remaining.length > opts.limit && last
                 ? JSON.stringify({
                     time: last.createdAt.getTime(),
                     id: last.id,
+                    filter,
                   })
                 : null,
           }
         }),
     },
     execution: {
-      withCase: (id, fn) =>
+      withCase: (id, _executionId, run) =>
         atomic(async () => {
-          get(id)
-          return fn({
+          const row = get(id)
+          const factory = factories.get(row.caseTypeName)
+          if (!factory) throw new Error('missing binding')
+          const repos = factory(
+            () => copy(data.domains.get(row.reference)),
+            (value) => {
+              data.domains.set(row.reference, copy(value))
+            },
+          )
+          return run({
+            repos,
             loadCase: async () => get(id),
-            currentClaim: async () => {
-              const claim = data.claims.get(id)
-              return claim
-                ? {
-                    ...claim,
-                    expired: Date.parse(claim.expiresAt) <= Date.now(),
-                  }
-                : null
-            },
-            insertClaim: async (executionId, step, scopeKey, ttl) => {
-              data.claims.set(id, {
-                executionId,
-                step,
-                scopeKey,
-                attempt: 1,
-                expiresAt: new Date(Date.now() + ttl).toISOString(),
-              })
-              return { claimedAt: new Date().toISOString() }
-            },
-            deleteClaim: async (executionId) => {
-              if (data.claims.get(id)?.executionId === executionId)
-                data.claims.delete(id)
-            },
-            appendEntry: append,
-            updateCaseState: async (state, dormancy) => {
-              const row = get(id)
-              row.state = recordedCopy(state)
-              row.seq += 1
-              row.updatedAt = new Date()
-              if (dormancy === 'ended') row.endedAt = new Date()
-              if (dormancy === 'reopened') row.endedAt = null
-              data.cases.set(id, row)
+            persistCompletion: async (e) => {
+              const metadata = data.cases.get(id)!
+              metadata.seq++
+              metadata.updatedAt = new Date()
+              if (e.dormancy === 'ended') metadata.endedAt = new Date()
+              if (e.dormancy === 'reopened') metadata.endedAt = null
+              for (const c of e.correlations) await correlation(c)
+              const started = await append(e.started)
+              const completed = await append(e.completed)
               return {
-                seq: row.seq,
-                endedAt: row.endedAt?.toISOString() ?? null,
-              }
-            },
-            applyEffects: async (effects) => {
-              for (const effect of effects) {
-                if (effect.kind === 'write') await effect.write(context)
-                else await correlation(effect.registration)
+                seq: metadata.seq,
+                endedAt: metadata.endedAt?.toISOString() ?? null,
+                startedAt: started.recordedAt,
+                committedAt: completed.recordedAt,
               }
             },
           })
-        }),
-      appendEntry: (input) => atomic(() => append(input)),
-      heartbeat: (id, executionId, ttl) =>
-        atomic(async () => {
-          const claim = data.claims.get(id)
-          if (claim?.executionId === executionId)
-            claim.expiresAt = new Date(Date.now() + ttl).toISOString()
-        }),
-      bumpAttempt: (id, executionId, attempt) =>
-        atomic(async () => {
-          const claim = data.claims.get(id)
-          if (claim?.executionId === executionId) claim.attempt = attempt
-        }),
-      releaseClaim: (id, executionId) =>
-        atomic(async () => {
-          if (data.claims.get(id)?.executionId === executionId)
-            data.claims.delete(id)
         }),
     },
     journal: {
@@ -335,51 +294,30 @@ export const memoryAdapter = (): AdapterFixture => {
             ),
         ),
     },
-    migrations: {
-      candidates: (type, marker, options, cursor, limit) =>
-        atomic(async () => {
-          const all = [...data.cases.values()]
-            .filter(
-              (c) =>
-                c.caseTypeName === type &&
-                (options.includeEnded || c.endedAt === null) &&
-                (options.caseIds === undefined ||
-                  options.caseIds.includes(c.id)) &&
-                (cursor === null || c.id > cursor) &&
-                !data.journal.some(
-                  (e) =>
-                    e.caseId === c.id &&
-                    e.step === marker &&
-                    e.entry === 'completed',
-                ),
-            )
-            .sort((a, b) => (a.id < b.id ? -1 : 1))
-          const cases = all
-            .slice(0, limit)
-            .map((c) => ({ id: c.id, state: structuredClone(c.state) }))
-          return {
-            cases,
-            nextCursor: all.length > limit ? (cases.at(-1)?.id ?? null) : null,
-          }
-        }),
-      hasCompleted: (id, marker) =>
-        atomic(async () =>
-          data.journal.some(
-            (e) =>
-              e.caseId === id && e.step === marker && e.entry === 'completed',
-          ),
-        ),
-    },
   }
   return {
     storage,
-    records: async () => [...data.records],
-    corrupt: async (id, state) => {
-      data.cases.set(id, { ...get(id), state })
+    bindCase<S extends StandardSchemaV1, A, R>(
+      definition: CaseTypeDefinition<S, A, R>,
+      factory: (
+        read: () => StandardSchemaV1.InferOutput<S>,
+        write: (value: StandardSchemaV1.InferOutput<S>) => void,
+      ) => NoInfer<R>,
+    ) {
+      factories.set(
+        definition.name,
+        factory as (
+          read: () => unknown,
+          write: (v: unknown) => void,
+        ) => unknown,
+      )
+      return boundCase(definition, storage)
     },
-    expire: async (id) => {
-      const claim = data.claims.get(id)
-      if (claim) claim.expiresAt = new Date(0).toISOString()
-    },
+    seed: async (reference: string, state: unknown) =>
+      atomic(async () => {
+        data.domains.set(reference, copy(state))
+      }),
+    domain: async (reference: string) =>
+      atomic(async () => copy(data.domains.get(reference))),
   }
 }

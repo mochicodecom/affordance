@@ -1,15 +1,6 @@
-/**
- * Public interface for storage adapters. Every member belongs to one coordinated store.
- * Methods exchange runtime values. Adapters encode complete case state and journal
- * actor/input/claimed state with serializeValue, and decode with deserializeValue
- * on every read, including transactional loads, listings and migration candidates.
- * Core validates decoded state against the case type's schema. Deltas are already
- * JSON-safe evidence and are stored verbatim, separately from complete state.
- * Migration pages isolate row decoding failures as MigrationCandidate.error;
- * other reads and storage-wide failures throw.
- */
+import type { StandardSchemaV1 } from '@standard-schema/spec'
 import type { JournalEntry, JournalFilter } from './execution/journal.js'
-import type { LifecyclePort } from './execution/port.js'
+import type { AtomicCasePort } from './execution/port.js'
 import type {
   Correlation,
   CorrelationRegistration,
@@ -20,8 +11,7 @@ import type {
   DeadLetterReason,
   ExternalEvent,
 } from './ingestion/ingest.js'
-import type { MigrationOptions } from './migration/migrate.js'
-import type { SerializationError } from './serialization.js'
+import type { AnyCaseType, CaseTypeDefinition } from './model/casetype.js'
 import type { StoredCase } from './store/store.js'
 
 export interface CaseListOptions {
@@ -40,8 +30,12 @@ export interface CasePage {
 }
 
 export interface CaseRepository {
-  /** State is already schema-validated by core. */
-  create(caseTypeName: string, state: unknown): Promise<StoredCase>
+  /** Attach under domain protection; validate before committing metadata. */
+  attach(
+    caseTypeName: string,
+    reference: string,
+    validate: (state: unknown) => Promise<unknown>,
+  ): Promise<StoredCase>
   /** Throws CaseNotFoundError for an unknown id; state is unvalidated. */
   get(caseId: string): Promise<StoredCase>
   /** Newest first, with a stable tie breaker. No duplicate records across pages. */
@@ -92,35 +86,9 @@ export interface DeliveryRepository {
   deadLetters(filter?: DeadLetterFilter): Promise<readonly DeadLetter[]>
 }
 
-/** A decoded candidate, or a failure isolated to that row. Storage outages still throw. */
-export type MigrationCandidate =
-  | { readonly id: string; readonly state: unknown; readonly error?: never }
-  | {
-      readonly id: string
-      readonly state?: never
-      readonly error: SerializationError
-    }
-
-export interface MigrationPage {
-  readonly cases: readonly MigrationCandidate[]
-  readonly nextCursor: string | null
-}
-
-export interface MigrationRepository {
-  /** Excludes cases with a completed marker; pagination order is adapter-owned. */
-  candidates(
-    caseTypeName: string,
-    marker: string,
-    options: MigrationOptions,
-    cursor: string | null,
-    limit: number,
-  ): Promise<MigrationPage>
-  hasCompleted(caseId: string, marker: string): Promise<boolean>
-}
-
-export interface EngineStorage<TCommit = unknown> {
+export interface EngineStorage {
   readonly cases: CaseRepository
-  readonly execution: LifecyclePort<TCommit>
+  readonly execution: AtomicCasePort<unknown>
   readonly journal: {
     read(
       caseId: string,
@@ -129,12 +97,15 @@ export interface EngineStorage<TCommit = unknown> {
   }
   readonly correlations: CorrelationRepository
   readonly deliveries: DeliveryRepository
-  readonly migrations: MigrationRepository
 }
 
 export { projectEntry } from './execution/journal.js'
-export type { HeldClaim, LifecyclePort, LifecycleTx } from './execution/port.js'
-export type { CommitEffect } from './model/handler.js'
+export type {
+  AtomicCasePort,
+  AtomicCaseSession,
+  CompletionEvidence,
+  CompletionMetadata,
+} from './execution/port.js'
 export type { JsonObject, JsonValue, SerializedValue } from './serialization.js'
 export {
   deserializeValue,
@@ -144,3 +115,17 @@ export {
 export { mintId } from './store/ids.js'
 export type { StoredCase } from './store/store.js'
 export { validateAgainstSchema } from './store/store.js'
+
+/** Definitions are bound to one coordinated adapter before engine construction. */
+export interface CaseBinding {
+  readonly definition: AnyCaseType
+  readonly storage: EngineStorage
+}
+/** Adapter helper: type erasure happens only after its typed repositories were bound. */
+export const boundCase = <S extends StandardSchemaV1, A, R>(
+  definition: CaseTypeDefinition<S, A, R>,
+  storage: EngineStorage,
+): CaseBinding => ({
+  definition: definition as unknown as AnyCaseType,
+  storage,
+})

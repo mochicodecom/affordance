@@ -1,13 +1,14 @@
 # Affordance
 
-Updated: 2026-09-06
+Updated: 2026-09-13
 
 **Compute what a case can do now, for a particular actor.**
 
 Affordance is a TypeScript library for adaptive case management: purchases,
 claims, onboarding, and other matters with several independent concerns and
-changing requirements. It runs inside your application and stores case state
-and execution records through a storage adapter, with Postgres supplied by `@affordance/pg`.
+changing requirements. It runs inside your application and loads case state
+from application domain tables through a storage adapter. It persists execution
+evidence separately. `@affordance/pg` supplies the Postgres integration.
 
 ## The problem
 
@@ -53,17 +54,14 @@ const entries = await engine.journal(caseId, { scopeKey: 'buyer-7' })
 
 - **Scope and permissions:** one step can produce separate affordances for each
   buyer, document, or payment. `requires` checks the case; `permits` checks the actor.
-- **Async execution:** claim the case, run the handler outside a database
-  transaction, then commit state and journal together. Executions serialize per
-  case; external effects must tolerate retries.
-- **Recorded decisions:** the journal preserves the actor, input, claim-time
-  guard results and state, committed changes, and failures. Reads and refused
-  claims are not journal entries.
-- **Changing definitions:** deployed steps apply to existing cases when their
-  state remains compatible. State restructuring has a journaled migration API.
-
-Start with the [introduction](docs/tutorial/README.md) for a complete case type,
-code examples, and the execution model.
+- **Atomic domain execution:** load current state, check guards, call application
+  repositories, validate the resulting state, and commit evidence together.
+- **Recorded decisions:** immutable `started` evidence and a `completed` delta.
+  Current reads always use domain records.
+- **Application-owned orchestration:** external calls, retries, cancellation, and
+  recovery use the adopter's existing approach outside atomic handlers.
+- **Current definitions:** available work follows today's definitions and domain
+  facts. Applications own their schema and data migrations.
 
 ## Install
 
@@ -113,8 +111,8 @@ isolated TypeScript consumer that exercises the engine with Postgres. See the
 
 | Package | Responsibility |
 | --- | --- |
-| `@affordance/core` | Case types, guards, engine, storage interfaces, journal, ingestion, and migration. |
-| `@affordance/pg` | Postgres persistence, schema management, claims, and atomic commits. |
+| `@affordance/core` | Case types, guards, engine, atomic interfaces, journal, and ingestion. |
+| `@affordance/pg` | Postgres domain bindings, framework metadata, and atomic execution. |
 | `@affordance/reference-app` | Group purchase with an app-owned HTTP interface, mock providers, and a React console. |
 | `@affordance/testkit` | Shared Postgres test setup. |
 
@@ -124,7 +122,7 @@ isolated TypeScript consumer that exercises the engine with Postgres. See the
 | [Vocabulary](CONTEXT.md) | The project's common language. |
 | [Architecture](docs/architecture.md) | Boundaries, guarantees, and tradeoffs. |
 | [HTTP contract](docs/affordance-contract.md) | Routes, payloads, visibility, and errors. |
-| [Migration](docs/migration.md) | Evolving stored state safely. |
+| [Migration](docs/migration.md) | Evolving application-owned domain state. |
 | [Releasing](docs/releasing.md) | Package checks, npm setup, and versioned releases. |
 | [Codebase map](docs/tutorial/reference/codebase-map.md) | Where to find each implementation. |
 

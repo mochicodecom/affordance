@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { AffordanceError, type AffordanceErrorCode } from '../../src/errors.js'
-import { ClaimLostError, settleSystemRun } from '../../src/execution/index.js'
+import { settleSystemRun } from '../../src/execution/index.js'
 import {
   classifyDeadLetter,
   type DeadLetterReason,
@@ -21,7 +21,7 @@ const classify = (error: unknown): [DeadLetterReason, string] =>
 
 const CODES: readonly AffordanceErrorCode[] = [
   'step-not-available',
-  'case-busy',
+
   'invalid-input',
   'not-found',
   'bad-request',
@@ -35,17 +35,6 @@ describe('classifyDeadLetter', () => {
       const error = new AffordanceError(code, `what a ${code} refusal says`)
       expect(classify(error)).toEqual([code, `what a ${code} refusal says`])
     }
-  })
-
-  it('classifies a lost claim as case-busy — the code it declares, not the class it is', () => {
-    // The regression the instanceof ladder had: ClaimLostError is not a
-    // CaseBusyError, but its raise site declared 'case-busy', and that is
-    // the answer — "not now", eligible for the provider's next retry.
-    const [reason, detail] = classify(
-      new ClaimLostError('case:1', 'exec:1', null),
-    )
-    expect(reason).toBe('case-busy')
-    expect(detail).toMatch(/lost its claim/)
   })
 
   it('keeps a bug as execution-failed — dead-lettered, never dropped', () => {
@@ -67,6 +56,6 @@ describe('REOPENS_ON_REDELIVERY', () => {
     )
       .filter((reason) => REOPENS_ON_REDELIVERY[reason])
       .sort()
-    expect(reopenable).toEqual(['case-busy', 'execution-failed'])
+    expect(reopenable).toEqual(['execution-failed'])
   })
 })

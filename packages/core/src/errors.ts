@@ -22,7 +22,7 @@ export const REFUSAL_CODES = [
   /** A guard said no. Carries the unmet conditions. */
   'step-not-available',
   /** Another Execution holds the case — "not now", not "never". */
-  'case-busy',
+
   /** A step's input failed its declared schema. */
   'invalid-input',
   /** No such case, or no such case type. */

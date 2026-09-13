@@ -23,7 +23,7 @@ interface TestActor {
   readonly roles: readonly string[]
 }
 
-const handler = async (state: TestState): Promise<TestState> => state
+const handler = async (): Promise<void> => {}
 
 describe('step() definition-time validation', () => {
   it('builds an unscoped step: guard normalized, scope null, input null', () => {
@@ -71,7 +71,7 @@ describe('step() definition-time validation', () => {
         key: (i) => i.id,
       },
       requires: { stillOpen: (_s, ctx) => !ctx.scope.done },
-      handler: async (state) => state,
+      handler: async () => {},
     })
     expect(definition.scope).not.toBeNull()
     const state = State.parse({
@@ -124,7 +124,7 @@ describe('step() definition-time validation', () => {
         name: 'scoped-anyof',
         scope: { select: (s: TestState) => s.items, key: (i) => i.id },
         requires: { grouped: group as never },
-        handler: async (state) => state,
+        handler: async () => {},
       }),
     ).toThrow(/anyOf is not part of the scoped guard surface/)
   })
@@ -137,42 +137,6 @@ describe('step() definition-time validation', () => {
         handler,
       }),
     ).toThrow(/input must be a Standard Schema/)
-  })
-
-  it('normalizes the retry policy, defaulting to three attempts with backoff', () => {
-    const defaulted = step({ name: 'defaulted', handler })
-    expect(defaulted.retry.maxAttempts).toBe(3)
-    expect(defaulted.retry.delayMs(1)).toBe(100)
-    expect(defaulted.retry.delayMs(2)).toBe(200)
-
-    const fixed = step({
-      name: 'fixed',
-      retry: { maxAttempts: 5, delayMs: 25 },
-      handler,
-    })
-    expect(fixed.retry.maxAttempts).toBe(5)
-    expect(fixed.retry.delayMs(3)).toBe(25)
-
-    const none = step({ name: 'no-retry', retry: { maxAttempts: 1 }, handler })
-    expect(none.retry.maxAttempts).toBe(1)
-  })
-
-  it('rejects a malformed retry policy at definition time', () => {
-    expect(() =>
-      step({ name: 'zero', retry: { maxAttempts: 0 }, handler }),
-    ).toThrow(/retry.maxAttempts must be an integer >= 1/)
-    expect(() =>
-      step({ name: 'fractional', retry: { maxAttempts: 1.5 }, handler }),
-    ).toThrow(/retry.maxAttempts must be an integer >= 1/)
-    expect(() =>
-      step({ name: 'negative-delay', retry: { delayMs: -1 }, handler }),
-    ).toThrow(/retry.delayMs must be a non-negative number or a function/)
-    expect(() =>
-      step({ name: 'bad-delay', retry: { delayMs: 'soon' as never }, handler }),
-    ).toThrow(/retry.delayMs must be a non-negative number or a function/)
-    expect(() =>
-      step({ name: 'bad-retry', retry: 3 as never, handler }),
-    ).toThrow(/retry must be \{ maxAttempts\?, delayMs\? \}/)
   })
 })
 
@@ -273,12 +237,11 @@ const typeLevelAssertions = (): void => {
     name: 'typed-scope',
     scope: { select: (s) => s.items, key: (i) => i.id },
     requires: { open: (s, ctx) => !ctx.scope.done && !s.approved },
-    handler: async (state, ctx) => {
+    handler: async (ctx) => {
       const key: string = ctx.scopeKey
       const item: Item = ctx.scope
       void key
       void item
-      return state
     },
   }
   void scoped

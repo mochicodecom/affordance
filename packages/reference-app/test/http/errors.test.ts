@@ -1,12 +1,8 @@
 /**
  * The adapter's error mapping, tested without a database.
  *
- * The mapping used to be an `instanceof` ladder over nine error classes drawn
- * from four core modules, and nothing forced it to stay exhaustive: a tenth
- * class fell through to a rethrow, which the binding surfaces as a 500 with
- * no contract payload. Now the framework declares the *kind* and the adapter
- * declares the *status*, so the interesting test is that every kind gets an
- * answer — including `ClaimLostError`, which the ladder never named.
+ * Framework refusals and indeterminate commits preserve their structured
+ * meaning across the HTTP boundary.
  *
  * A stub engine is all this needs: the adapter's whole job here is to
  * translate what the engine threw.
@@ -14,10 +10,9 @@
 
 import {
   type AffordanceError,
-  CaseBusyError,
   CaseNotFoundError,
   CaseStateValidationError,
-  ClaimLostError,
+  ExecutionIndeterminateError,
   type GuardEvaluation,
   ScopeKeyError,
   StepExecutionError,
@@ -70,20 +65,6 @@ const cases: readonly [string, AffordanceError, number, string][] = [
     'step-not-available',
   ],
   [
-    'CaseBusyError',
-    new CaseBusyError('c1', {
-      executionId: 'e1',
-      stepName: 'close',
-      scopeKey: null,
-      expiresAt: '2026-08-05T00:00:30.000Z',
-    }),
-    409,
-    'case-busy',
-  ],
-  // Never named by the old ladder: it fell through to a rethrow, and the
-  // binding turned a lost claim into an unhandled 500.
-  ['ClaimLostError', new ClaimLostError('c1', 'e1', 'e2'), 409, 'case-busy'],
-  [
     'StepInputValidationError',
     new StepInputValidationError('close', [{ message: 'required' }]),
     422,
@@ -123,6 +104,19 @@ const cases: readonly [string, AffordanceError, number, string][] = [
 ]
 
 describe('framework errors on the wire', () => {
+  it('preserves uncertain commit identity without calling it a definite failure', async () => {
+    const { status, body } = await execute(
+      new ExecutionIndeterminateError('c1', 'e1'),
+    )
+    expect(status).toBe(503)
+    expect(body).toMatchObject({
+      contract: 'affordance/v1',
+      error: 'execution-indeterminate',
+      caseId: 'c1',
+      executionId: 'e1',
+    })
+    expect(body.message).toContain('reconcile before retrying')
+  })
   it.each(cases)(
     '$0 answers with its code and status',
     async (name, error, status, code) => {

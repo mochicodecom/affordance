@@ -6,7 +6,7 @@
  * literal `:` in typed ids), `scopeKey` absence-vs-null, and the payload
  * shapes of all the routes that used to serialize themselves inline. Second,
  * the audience rule at every surface that carries condition results — most
- * pointedly the journal, whose `claimed` entries record the full guard
+ * pointedly the journal, whose `started` entries record the full guard
  * evaluation and the Case State it ran against, neither of which is a
  * caller's business under `permitted` visibility.
  */
@@ -72,7 +72,7 @@ const execution: ExecutionResult = {
   seq: 4,
   dormancy: null,
   endedAt: null,
-  claimedAt: '2026-08-05T00:00:01.000Z',
+  startedAt: '2026-08-05T00:00:01.000Z',
   committedAt: '2026-08-05T00:00:02.000Z',
 }
 
@@ -90,7 +90,7 @@ describe('the execution payload', () => {
       delta: [{ op: 'add', path: '/json/committed', value: true }],
       dormancy: null,
       endedAt: null,
-      claimedAt: '2026-08-05T00:00:01.000Z',
+      startedAt: '2026-08-05T00:00:01.000Z',
       committedAt: '2026-08-05T00:00:02.000Z',
     })
     expect(JSON.stringify(payload)).not.toContain('the whole case document')
@@ -187,12 +187,12 @@ describe('the affordance payload', () => {
 })
 
 describe('the journal payload', () => {
-  const claimed: JournalEntry = {
+  const started: JournalEntry = {
     ordinal: 12,
     id: 'jrnl:1',
     caseId: 'case:5f1b',
     executionId: 'exec:9a2c',
-    entry: 'claimed',
+    entry: 'started',
     attempt: 1,
     step: 'record-commitment',
     scopeKey: 'buyer:7',
@@ -208,7 +208,7 @@ describe('the journal payload', () => {
   }
 
   it('redacts the recorded guard and omits the state under permitted visibility', () => {
-    const payload = toJournalPayload([claimed], context('permitted'))
+    const payload = toJournalPayload([started], context('permitted'))
     const entry = payload.entries[0]!
     // The verdict survives; the rule that decided it does not.
     expect(entry.guard).toMatchObject({
@@ -226,7 +226,7 @@ describe('the journal payload', () => {
   })
 
   it('serves the operator the evidence whole', () => {
-    const entry = toJournalPayload([claimed], context('all')).entries[0]!
+    const entry = toJournalPayload([started], context('all')).entries[0]!
     expect(entry.guard!.conditions.map((condition) => condition.name)).toEqual([
       'escrowReady',
       'isThisBuyer',

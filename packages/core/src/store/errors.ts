@@ -3,7 +3,7 @@ import { AffordanceError } from '../errors.js'
 
 /**
  * A Case State document failed validation against the provided state schema —
- * either an invalid initial state on `createCase`, or a stored state that no
+ * either an invalid domain state on attachment, or a stored state that no
  * longer satisfies the schema on `loadCase` (loud by design: cases float to
  * the latest definitions, so a load-time mismatch is an app bug,
  * never something to paper over).

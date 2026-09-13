@@ -291,7 +291,7 @@ const toEventPayload = (event: ExternalEvent): ExternalEventPayload => ({
 /**
  * One committed Execution as the wire carries it. Deliberately not the
  * {@link ExecutionResult}: that record carries the committed Case State and
- * the full claim-time guard evaluation, and neither belongs on the wire —
+ * the full enforcement-time guard evaluation, and neither belongs on the wire —
  * state is deliberately absent from this contract everywhere, and the guard
  * record is the journal's to serve, filtered for the audience there.
  */
@@ -308,7 +308,7 @@ const toExecutionDescriptor = (
   delta: toDeltaPayload(result.delta),
   dormancy: result.dormancy,
   endedAt: result.endedAt,
-  claimedAt: result.claimedAt,
+  startedAt: result.startedAt,
   committedAt: result.committedAt,
 })
 

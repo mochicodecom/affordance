@@ -74,13 +74,20 @@ export interface MockServices {
    * check id.
    */
   startVerification(input: {
+    readonly requestId?: string
     readonly buyerId: string
     readonly hits?: readonly string[]
   }): string
   /** Send a co-ownership agreement envelope; returns the provider's envelope id. */
-  sendEnvelope(input: { readonly buyerId: string }): string
+  sendEnvelope(input: {
+    readonly requestId?: string
+    readonly buyerId: string
+  }): string
   /** Apply for an escrow account; returns the provider's application id. */
-  applyForEscrowAccount(input: { readonly address: string }): string
+  applyForEscrowAccount(input: {
+    readonly requestId?: string
+    readonly address: string
+  }): string
   /**
    * Announce a wire arriving. The escrow company does this unprompted — there
    * is no request to correlate against, so the app registers the account's
@@ -88,6 +95,7 @@ export interface MockServices {
    */
   announceWire(input: {
     readonly applicationId: string
+    readonly requestId?: string
     readonly buyerId: string
     readonly amount: number
     readonly fromAccount?: string
@@ -175,7 +183,7 @@ export const createMockServices = (
 
   return {
     startVerification: (input) => {
-      const checkId = `chk_${nextId()}`
+      const checkId = input.requestId ?? `chk_${nextId()}`
       const hits = input.hits ?? []
       enqueue({
         ...PROVIDER_EVENTS.checkCompleted,
@@ -192,8 +200,8 @@ export const createMockServices = (
       return checkId
     },
 
-    sendEnvelope: () => {
-      const envelopeId = `env_${nextId()}`
+    sendEnvelope: (input) => {
+      const envelopeId = input.requestId ?? `env_${nextId()}`
       enqueue({
         ...PROVIDER_EVENTS.envelopeCompleted,
         externalId: envelopeId,
@@ -205,8 +213,8 @@ export const createMockServices = (
       return envelopeId
     },
 
-    applyForEscrowAccount: () => {
-      const applicationId = `app_${nextId()}`
+    applyForEscrowAccount: (input) => {
+      const applicationId = input.requestId ?? `app_${nextId()}`
       enqueue({
         ...PROVIDER_EVENTS.accountOpened,
         externalId: applicationId,

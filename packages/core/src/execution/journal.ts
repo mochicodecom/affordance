@@ -4,7 +4,7 @@
  *
  * Historical questions are answered from what the system actually believed at
  * the time, never by re-deriving the past through present-day code — so a
- * `claimed` entry stores the guard evaluation *and* the Case State it was
+ * `started` entry stores the guard evaluation *and* the Case State it was
  * evaluated against, and every entry repeats the Execution's identity (step,
  * scope key, actor). Per-track audit — "everything that happened on buyer
  * #7" — is therefore a filter, not a reconstruction.
@@ -16,24 +16,10 @@
 import type { GuardEvaluation } from '../guards/index.js'
 import type { StateDelta } from './delta.js'
 
-/**
- * Which lifecycle moment an entry records.
- *
- * - `claimed` — the claim's transactional guard re-evaluation passed and the
- *   Execution took the case; carries `guard`, `asOf` and `state`
- * - `attempt-failed` — one attempt threw and another will follow
- * - `completed` — the handler's Case State was committed; carries `delta`
- * - `failed` — retries exhausted (or a deterministic defect); case released
- * - `expired` — the claim lapsed without a terminal entry: the handler's
- *   process died, and a later claimant recorded the abandonment
- */
-export const JOURNAL_ENTRY_KINDS = [
-  'claimed',
-  'attempt-failed',
-  'completed',
-  'failed',
-  'expired',
-] as const
+/** Started and completed are persisted together with the domain operation.
+ * Failed entries are reserved for explicitly confirmed rollback diagnostics;
+ * the ordinary engine records committed operations only. */
+export const JOURNAL_ENTRY_KINDS = ['started', 'completed', 'failed'] as const
 
 export type JournalEntryType = (typeof JOURNAL_ENTRY_KINDS)[number]
 
@@ -60,21 +46,21 @@ export interface JournalEntry {
   /** The acting Actor, as supplied by the app. */
   readonly actor: unknown
   /**
-   * Validated input on engine-written claimed entries, including explicit undefined.
+   * Validated input on engine-written started entries, including explicit undefined.
    * Later lifecycle entries omit input evidence and default this field to null.
    */
   readonly input: unknown
-  /** The instant the claim's guard re-evaluation was made as of, on `claimed` entries. */
+  /** The instant the guard re-evaluation was made as of, on `started` entries. */
   readonly asOf: string | null
-  /** The claim-time guard evaluation — the enforcement moment's full record. */
+  /** The enforcement-time guard evaluation — the enforcement moment's full record. */
   readonly guard: GuardEvaluation | null
-  /** The Case State the guard was evaluated against, on `claimed` entries. */
+  /** The Case State the guard was evaluated against, on `started` entries. */
   readonly state: unknown
   /** The committed state delta, on `completed` entries. */
   readonly delta: StateDelta | null
   /** `end()` / `reopen()` called by the handler, on `completed` entries. */
   readonly dormancy: 'ended' | 'reopened' | null
-  /** The failure, on `attempt-failed` / `failed` / `expired` entries. */
+  /** The failure, on `failed` entries. */
   readonly error: JournalError | null
   readonly recordedAt: string
 }
@@ -91,12 +77,12 @@ interface JournalEntryIdentity {
 }
 
 /**
- * A `claimed` entry records the enforcement moment, so the evidence is
+ * A `started` entry records the enforcement moment, so the evidence is
  * required: the instant, the guard evaluation, and the Case State it ran
  * against.
  */
-export interface ClaimedEntryInput extends JournalEntryIdentity {
-  readonly entry: 'claimed'
+export interface StartedEntryInput extends JournalEntryIdentity {
+  readonly entry: 'started'
   readonly asOf: string
   readonly guard: GuardEvaluation
   readonly state: unknown
@@ -109,9 +95,9 @@ export interface CompletedEntryInput extends JournalEntryIdentity {
   readonly dormancy?: 'ended' | 'reopened' | null
 }
 
-/** Every way an Execution stops without committing carries the failure that stopped it. */
+/** Optional confirmed-rollback diagnostics. Ordinary execution writes no failure entry. */
 export interface FailureEntryInput extends JournalEntryIdentity {
-  readonly entry: 'attempt-failed' | 'failed' | 'expired'
+  readonly entry: 'failed'
   readonly error: JournalError
 }
 
@@ -123,29 +109,29 @@ export interface FailureEntryInput extends JournalEntryIdentity {
  * quietly journaled.
  */
 export type JournalEntryInput =
-  | ClaimedEntryInput
+  | StartedEntryInput
   | CompletedEntryInput
   | FailureEntryInput
 
 /**
- * A `claimed` entry as read back, with the enforcement-moment evidence
+ * A `started` entry as read back, with the enforcement-moment evidence
  * present — what {@link appendEntry}'s input union guarantees was written.
  */
-export type ClaimedJournalEntry = JournalEntry & {
-  readonly entry: 'claimed'
+export type StartedJournalEntry = JournalEntry & {
+  readonly entry: 'started'
   readonly asOf: string
   readonly guard: GuardEvaluation
 }
 
 /**
- * Narrow a read entry to the claimed moment. The one predicate every reader
- * of claim-time evidence (`foldExecutions`, audit replay) shares, so what
+ * Narrow a read entry to the started moment. The one predicate every reader
+ * of enforcement-time evidence (`foldExecutions`, audit replay) shares, so what
  * counts as "carries the evidence" is decided once.
  */
-export const isClaimedEntry = (
+export const isStartedEntry = (
   entry: JournalEntry,
-): entry is ClaimedJournalEntry =>
-  entry.entry === 'claimed' && entry.guard !== null && entry.asOf !== null
+): entry is StartedJournalEntry =>
+  entry.entry === 'started' && entry.guard !== null && entry.asOf !== null
 
 /** Filters for {@link readJournal}; all optional, all AND-ed. */
 export interface JournalFilter {
@@ -177,10 +163,10 @@ export type JournalEntryColumns = Omit<
  * a second, divergent copy of the journal's semantics.
  */
 export const projectEntry = (input: JournalEntryInput): JournalEntryColumns => {
-  const claimed = input.entry === 'claimed' ? input : null
+  const started = input.entry === 'started' ? input : null
   const completed = input.entry === 'completed' ? input : null
   const failure =
-    input.entry !== 'claimed' && input.entry !== 'completed' ? input : null
+    input.entry !== 'started' && input.entry !== 'completed' ? input : null
   return {
     caseId: input.caseId,
     executionId: input.executionId,
@@ -190,9 +176,9 @@ export const projectEntry = (input: JournalEntryInput): JournalEntryColumns => {
     scopeKey: input.scopeKey ?? null,
     actor: Object.hasOwn(input, 'actor') ? input.actor : null,
     input: Object.hasOwn(input, 'input') ? input.input : null,
-    asOf: claimed?.asOf ?? null,
-    guard: claimed?.guard ?? null,
-    state: claimed === null ? null : claimed.state,
+    asOf: started?.asOf ?? null,
+    guard: started?.guard ?? null,
+    state: started === null ? null : started.state,
     delta: completed?.delta ?? null,
     dormancy: completed?.dormancy ?? null,
     error: failure?.error ?? null,
@@ -200,10 +186,10 @@ export const projectEntry = (input: JournalEntryInput): JournalEntryColumns => {
 }
 
 /** How an Execution ended up, folded from its entries. */
-export type ExecutionStatus = 'in-progress' | 'completed' | 'failed' | 'expired'
+export type ExecutionStatus = 'in-progress' | 'completed' | 'failed'
 
 /**
- * One Execution as a single record: its identity, the claim-time evidence,
+ * One Execution as a single record: its identity, the enforcement-time evidence,
  * and how it settled. This is a fold over entries of the *same* Execution —
  * assembling one record from the moments that constitute it, not deriving
  * state from a log (the design rejects the latter, not the former).
@@ -220,12 +206,12 @@ export interface ExecutionRecord {
   readonly attempts: number
   readonly asOf: string | null
   readonly guard: GuardEvaluation | null
-  /** The Case State the claim's guard was evaluated against. */
+  /** The Case State the guard was evaluated against. */
   readonly state: unknown
   readonly delta: StateDelta | null
   readonly dormancy: 'ended' | 'reopened' | null
   readonly error: JournalError | null
-  readonly claimedAt: string | null
+  readonly startedAt: string | null
   /** When the Execution reached a terminal entry; `null` while in progress. */
   readonly settledAt: string | null
 }
@@ -233,7 +219,6 @@ export interface ExecutionRecord {
 const TERMINAL: Record<string, ExecutionStatus | undefined> = {
   completed: 'completed',
   failed: 'failed',
-  expired: 'expired',
 }
 
 /**
@@ -248,7 +233,7 @@ export const foldExecutions = (
   for (const entry of entries) {
     const previous = byExecution.get(entry.executionId)
     const terminal = TERMINAL[entry.entry]
-    const claimed = isClaimedEntry(entry) ? entry : null
+    const started = isStartedEntry(entry) ? entry : null
     const base: ExecutionRecord = previous ?? {
       executionId: entry.executionId,
       caseId: entry.caseId,
@@ -264,22 +249,20 @@ export const foldExecutions = (
       delta: null,
       dormancy: null,
       error: null,
-      claimedAt: null,
+      startedAt: null,
       settledAt: null,
     }
     byExecution.set(entry.executionId, {
       ...base,
       attempts: Math.max(base.attempts, entry.attempt),
       status: terminal ?? base.status,
-      asOf: claimed !== null ? claimed.asOf : base.asOf,
-      guard: claimed !== null ? claimed.guard : base.guard,
-      state: claimed !== null ? claimed.state : base.state,
+      asOf: started !== null ? started.asOf : base.asOf,
+      guard: started !== null ? started.guard : base.guard,
+      state: started !== null ? started.state : base.state,
       delta: entry.delta ?? base.delta,
       dormancy: entry.dormancy ?? base.dormancy,
-      // The terminal error is the one that matters; an attempt-failed error
-      // only stands while nothing has superseded it.
       error: entry.error ?? base.error,
-      claimedAt: claimed !== null ? claimed.recordedAt : base.claimedAt,
+      startedAt: started !== null ? started.recordedAt : base.startedAt,
       settledAt: terminal === undefined ? base.settledAt : entry.recordedAt,
     })
   }
