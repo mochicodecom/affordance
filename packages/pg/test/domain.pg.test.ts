@@ -214,6 +214,65 @@ describe('Postgres domain mechanics', () => {
       client.release()
     }
   })
+  it('loads fresh children after a parent lock even with a repeatable-read connection default', async () => {
+    let armed = false
+    let protecting!: () => void
+    const protectionStarted = new Promise<void>((resolve) => {
+      protecting = resolve
+    })
+    const nondefaultPool: PoolLike = {
+      query: pool.query.bind(pool),
+      connect: async () => {
+        const client = await pool.connect()
+        await client.query(
+          "set default_transaction_isolation='repeatable read'",
+        )
+        return {
+          query: <R extends QueryResultRow>(
+            text: string,
+            values?: unknown[],
+          ) => {
+            if (armed && text.startsWith('select id from contract_purchases'))
+              protecting()
+            return client.query<R>(text, values)
+          },
+          // Discard this test connection rather than leaking its altered default.
+          release: () => client.release(true),
+        }
+      },
+    }
+    const f = await fixture(domainDefinition(randomUUID()), nondefaultPool)
+    const writer = await pool.connect()
+    try {
+      await writer.query('begin')
+      await writer.query(
+        'select id from contract_purchases where id=$1 for update',
+        [f.reference],
+      )
+      await writer.query(
+        "update contract_buyers set name='External Bob' where purchase_id=$1 and id='b'",
+        [f.reference],
+      )
+      armed = true
+      const execution = f.engine.execute(f.id, 'rename', {
+        actor: {},
+        scopeKey: 'a',
+        input: { name: 'Engine Alice' },
+      })
+      await protectionStarted
+      await writer.query('commit')
+      await execution
+      expect((await f.engine.journal(f.id))[0]?.state).toMatchObject({
+        buyers: [
+          { id: 'a', name: 'Alice' },
+          { id: 'b', name: 'External Bob' },
+        ],
+      })
+    } finally {
+      await writer.query('rollback')
+      writer.release()
+    }
+  })
   it('reconciles committed and absent execution identities under a case fence', async () => {
     const f = await fixture(domainDefinition(randomUUID()))
     const result = await f.engine.execute(f.id, 'increment', {
@@ -229,6 +288,16 @@ describe('Postgres domain mechanics', () => {
 })
 
 describe('commit acknowledgment and transaction lifetime', () => {
+  it('reports a deferred constraint rejection at COMMIT as a known rollback', async () => {
+    await expect(
+      withTransaction({ pool }, async (tx) => {
+        await tx.query(
+          'create temporary table deferred_failure (n integer unique deferrable initially deferred) on commit drop',
+        )
+        await tx.query('insert into deferred_failure values (1),(1)')
+      }),
+    ).rejects.toMatchObject({ code: '23505', severity: 'ERROR' })
+  })
   it.each(['before', 'after'] as const)(
     'reconciles a lost %s-COMMIT acknowledgment without retrying',
     async (when) => {

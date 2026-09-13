@@ -209,7 +209,7 @@ export interface JournalEntryPayload {
   /** The committed state delta, on `completed` entries. */
   readonly delta: StateDeltaPayload | null
   readonly dormancy: DormancyPayload | null
-  /** The failure, on `attempt-failed` / `failed` / `expired` entries. */
+  /** The failure, on optional `failed` diagnostic entries. */
   readonly error: JournalErrorPayload | null
   readonly recordedAt: string
 }

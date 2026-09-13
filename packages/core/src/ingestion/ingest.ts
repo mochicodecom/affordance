@@ -15,7 +15,7 @@
  *    path: the guard still decides, transactionally.
  *
  * What is *not* allowed is a quiet drop. An event nothing can route, an event
- * whose step the guard refuses, an event whose case is busy — each lands in
+ * whose step the guard refuses, or whose operation rolls back — each lands in
  * the same table with a status and a reason, which is the dead-letter
  * surface. "The webhook definitely arrived, so why is the case still waiting"
  * is a question this table answers without anyone reading a log file.

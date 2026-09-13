@@ -26,6 +26,7 @@ import type {
 } from '@affordance/core'
 import {
   AffordanceError,
+  ExecutionIndeterminateError,
   JOURNAL_ENTRY_KINDS,
   StepInputValidationError,
   StepNotAvailableError,
@@ -138,14 +139,21 @@ const STATUS: Record<AffordanceErrorCode, number> = {
  *
  * Two refusals carry structured detail worth putting on the wire and are
  * named individually; the rest are the code, the status and the message.
- * Anything that is not an {@link AffordanceError} is not a refusal at all —
- * a bug, or the database being gone — and is rethrown rather than translated
- * into a response.
+ * Indeterminate commits carry their execution identity for reconciliation.
+ * Other unexpected errors propagate to the host.
  */
 const toErrorResponse = (
   error: unknown,
   visibility: Visibility,
 ): ApiResponse => {
+  if (error instanceof ExecutionIndeterminateError)
+    return json(
+      503,
+      toErrorPayload('execution-indeterminate', error.message, {
+        caseId: error.caseId,
+        executionId: error.executionId,
+      }),
+    )
   if (!(error instanceof AffordanceError)) throw error
   const status = STATUS[error.code]
 

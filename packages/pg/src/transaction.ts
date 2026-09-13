@@ -28,7 +28,9 @@ const runTransaction = async <T>(
   handle: Queryable,
   fn: (tx: Transaction) => Promise<T>,
 ): Promise<T> => {
-  await handle.query('begin')
+  // A waiting parent lock must be followed by a fresh snapshot, even when
+  // the connection's default isolation level is repeatable read.
+  await handle.query('begin isolation level read committed')
   let active = true
   const tx = {
     query: (...args: Parameters<Queryable['query']>) => {
@@ -49,7 +51,27 @@ const runTransaction = async <T>(
     await handle.query('commit')
   } catch (cause) {
     await handle.query('rollback').catch(() => undefined)
+    if (isConfirmedCommitRejection(cause)) throw cause
     throw new CommitOutcomeUnknownError({ cause })
   }
   return result
+}
+
+/** Affirmative server errors that abort COMMIT. Connection loss and SQLSTATE
+ * 40003 (statement completion unknown) deliberately remain indeterminate. */
+const isConfirmedCommitRejection = (error: unknown): boolean => {
+  if (
+    typeof error !== 'object' ||
+    error === null ||
+    !('severity' in error) ||
+    error.severity !== 'ERROR' ||
+    !('code' in error) ||
+    typeof error.code !== 'string'
+  )
+    return false
+  return (
+    /^23[0-9A-Z]{3}$/.test(error.code) ||
+    error.code === '40001' ||
+    error.code === '40P01'
+  )
 }

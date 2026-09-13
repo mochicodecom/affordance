@@ -95,7 +95,7 @@ export interface CompletedEntryInput extends JournalEntryIdentity {
   readonly dormancy?: 'ended' | 'reopened' | null
 }
 
-/** Every way an Execution stops without committing carries the failure that stopped it. */
+/** Optional confirmed-rollback diagnostics. Ordinary execution writes no failure entry. */
 export interface FailureEntryInput extends JournalEntryIdentity {
   readonly entry: 'failed'
   readonly error: JournalError
@@ -261,8 +261,6 @@ export const foldExecutions = (
       state: started !== null ? started.state : base.state,
       delta: entry.delta ?? base.delta,
       dormancy: entry.dormancy ?? base.dormancy,
-      // The terminal error is the one that matters; an attempt-failed error
-      // only stands while nothing has superseded it.
       error: entry.error ?? base.error,
       startedAt: started !== null ? started.recordedAt : base.startedAt,
       settledAt: terminal === undefined ? base.settledAt : entry.recordedAt,

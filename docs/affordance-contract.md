@@ -297,7 +297,9 @@ error code; unexpected execution failures become `execution-failed`.
 
 A valid recorded delivery returns `200` regardless of outcome. Malformed events
 can return `400`; failures outside execution, such as persistence failures,
-propagate to the host. Redelivery after `case-busy` or `execution-failed` reopens
+propagate to the host. Indeterminate execution commits return `503` with error code
+`execution-indeterminate`, `caseId`, and `executionId`. Reconcile through the
+adapter before retrying; this response does not confirm rollback. Redelivery after `execution-failed` reopens
 the event for another attempt. Successful events and other dead-letter reasons
 remain deduplicated. There is no scheduled redelivery inside the engine.
 

@@ -137,9 +137,16 @@ confirmed commit. A handler error, invalid resulting state, or failed evidence
 write rolls back the domain operation. All repositories must participate in this
 same atomicity; independent CRUD implementations cannot substitute for it.
 
+Protected operations explicitly use Read Committed isolation so a load after a
+waited lock observes the newly committed domain rows. Ordinary aggregate reads
+use a short Repeatable Read, read-only transaction. See the
+[Postgres isolation rules](https://www.postgresql.org/docs/17/transaction-iso.html).
+
 ## Unknown commit outcomes
 
-A failed COMMIT acknowledgment does not prove rollback. The Postgres execution
+Lost COMMIT acknowledgments do not prove rollback. Affirmative Postgres
+constraint, serialization, and deadlock errors retain their SQLSTATE and report
+known rollback; callbacks are never automatically retried. The Postgres execution
 adapter throws `ExecutionIndeterminateError` with the case and execution IDs.
 It writes no false failure evidence and does not replay the handler. To determine
 what happened:

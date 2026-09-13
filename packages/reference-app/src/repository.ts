@@ -109,7 +109,7 @@ export const purchaseRepositories = (tx: Transaction, id: string) => {
       ),
     verify: (
       buyer: string,
-      status: string,
+      status: Extract<Buyer['verification']['status'], 'clear' | 'review'>,
       hits: string[],
       flaggedAt: string | null,
     ) =>
@@ -155,7 +155,7 @@ export const purchaseRepositories = (tx: Transaction, id: string) => {
           w.resolution,
         ],
       ),
-    resolveWire: (wire: string, resolution: string) =>
+    resolveWire: (wire: string, resolution: NonNullable<Wire['resolution']>) =>
       update(
         'update purchase_wires set resolution=$3 where purchase_id=$1 and id=$2',
         [wire, resolution],

@@ -175,7 +175,7 @@ describe('who sees what', () => {
       actor: buyerA,
     })
 
-    // The claimed entry recorded the full guard evaluation and the Case
+    // The started entry recorded the full guard evaluation and the Case
     // State it ran against. buyer_b, told only `permitted: false` by the
     // affordances read, must not find the permits rule — or the state —
     // waiting one request away in the journal.
@@ -198,9 +198,9 @@ describe('who sees what', () => {
     const entries = (
       audit.body as { entries: { entry: string; state?: unknown }[] }
     ).entries
-    const claimed = entries.find((entry) => entry.entry === 'started')
+    const started = entries.find((entry) => entry.entry === 'started')
     expect(JSON.stringify(audit.body)).toContain('isThisBuyer')
-    expect(claimed?.state).toBeDefined()
+    expect(started?.state).toBeDefined()
   })
 
   it('tells an ops console everything, when the host asks for it', async () => {
