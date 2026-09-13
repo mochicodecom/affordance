@@ -165,6 +165,9 @@ remain the application's responsibility. `withTransaction` exposes
 If Postgres acknowledges `COMMIT` with a `ROLLBACK` command after a caught SQL
 error, `withTransaction` throws `TransactionRolledBackError` instead of returning
 the callback's result. Only a `COMMIT` acknowledgment reports success.
+The pool reuses a healthy connection after a confirmed commit or rollback,
+including ordinary guard refusals and validation errors. Failed cleanup or an
+uncertain commit causes the connection to be discarded.
 
 ## Evidence and serialization
 

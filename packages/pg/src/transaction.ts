@@ -21,12 +21,12 @@ export const withTransaction = async <T>(
   if (!('pool' in db))
     return withClient(db.client, () => runTransaction(db.client, fn))
   const client = await db.pool.connect()
-  let discard = false
+  // Keep the connection only after the transaction confirms it can be reused.
+  let discard = true
   try {
-    return await runTransaction(client, fn)
-  } catch (error) {
-    discard = true
-    throw error
+    return await runTransaction(client, fn, () => {
+      discard = false
+    })
   } finally {
     client.release(discard)
   }
@@ -34,6 +34,7 @@ export const withTransaction = async <T>(
 const runTransaction = async <T>(
   handle: Queryable,
   fn: (tx: Transaction) => Promise<T>,
+  onReusable: () => void = () => {},
 ): Promise<T> => {
   // A waiting parent lock must be followed by a fresh snapshot, even when
   // the connection's default isolation level is repeatable read.
@@ -50,7 +51,7 @@ const runTransaction = async <T>(
     result = await fn(tx)
   } catch (error) {
     active = false
-    await handle.query('rollback').catch(() => undefined)
+    if (await rollback(handle)) onReusable()
     throw error
   }
   active = false
@@ -59,16 +60,33 @@ const runTransaction = async <T>(
     const acknowledgment = await handle.query('commit')
     command = acknowledgment.command
   } catch (cause) {
-    await handle.query('rollback').catch(() => undefined)
-    if (isConfirmedCommitRejection(cause)) throw cause
+    const rolledBack = await rollback(handle)
+    if (isConfirmedCommitRejection(cause)) {
+      if (rolledBack) onReusable()
+      throw cause
+    }
     throw new CommitOutcomeUnknownError({ cause })
   }
-  if (command === 'ROLLBACK') throw new TransactionRolledBackError()
+  if (command === 'ROLLBACK') {
+    onReusable()
+    throw new TransactionRolledBackError()
+  }
   if (command !== 'COMMIT')
     throw new CommitOutcomeUnknownError({
       cause: new Error(`Unexpected COMMIT acknowledgment: ${command}`),
     })
+  onReusable()
   return result
+}
+
+/** A failed or unrecognized cleanup acknowledgment leaves the connection unusable.
+ * Preserve the operation's original error when cleanup also fails. */
+const rollback = async (handle: Queryable): Promise<boolean> => {
+  try {
+    return (await handle.query('rollback')).command === 'ROLLBACK'
+  } catch {
+    return false
+  }
 }
 
 /** Affirmative server errors that abort COMMIT. Connection loss and SQLSTATE

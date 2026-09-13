@@ -19,6 +19,7 @@ import {
 } from '../src/index.js'
 
 const pool = testPool({ max: 12 })
+const singlePool = testPool({ max: 1 })
 beforeAll(async () => {
   await pool.query(`create table if not exists contract_purchases (id text primary key, count integer not null);
     create table if not exists contract_buyers (purchase_id text references contract_purchases(id), id text, name text, primary key(purchase_id,id));`)
@@ -289,11 +290,45 @@ describe('Postgres domain mechanics', () => {
 })
 
 describe('commit acknowledgment and transaction lifetime', () => {
+  it.each([
+    {
+      step: 'increment',
+      options: { actor: { allowed: false } },
+      code: 'step-not-available',
+    },
+    {
+      step: 'rename',
+      options: { actor: {}, scopeKey: 'a', input: { name: 42 } },
+      code: 'invalid-input',
+    },
+    { step: 'fail', options: { actor: {} }, code: 'execution-failed' },
+    { step: 'invalid', options: { actor: {} }, code: 'execution-failed' },
+  ])(
+    'reuses the connection after $step rolls back with $code',
+    async ({ step, options, code }) => {
+      const f = await fixture(domainDefinition(randomUUID()), singlePool)
+      const before = await singlePool.query('select pg_backend_pid() as pid')
+      for (let i = 0; i < 3; i++)
+        await expect(
+          f.engine.execute(f.id, step, options),
+        ).rejects.toMatchObject({ code })
+      const after = await singlePool.query('select pg_backend_pid() as pid')
+      expect(after.rows[0].pid).toBe(before.rows[0].pid)
+      expect(singlePool.totalCount).toBe(1)
+      expect(singlePool.idleCount).toBe(1)
+      expect(await f.engine.case(f.id)).toMatchObject({
+        seq: 0,
+        state: { count: 0 },
+      })
+      expect(await f.engine.journal(f.id)).toEqual([])
+    },
+  )
   it('rejects an attachment result when a caught SQL error makes COMMIT roll back', async () => {
     const f = await fixture(domainDefinition(randomUUID()))
     const reference = randomUUID()
+    const before = await singlePool.query('select pg_backend_pid() as pid')
     await expect(
-      withTransaction({ pool }, async (tx) => {
+      withTransaction({ pool: singlePool }, async (tx) => {
         await tx.query('insert into contract_purchases values ($1,42)', [
           reference,
         ])
@@ -310,6 +345,9 @@ describe('commit acknowledgment and transaction lifetime', () => {
       }),
     ).rejects.toBeInstanceOf(TransactionRolledBackError)
     expect(
+      (await singlePool.query('select pg_backend_pid() as pid')).rows[0].pid,
+    ).toBe(before.rows[0].pid)
+    expect(
       (
         await pool.query('select id from contract_purchases where id=$1', [
           reference,
@@ -325,19 +363,24 @@ describe('commit acknowledgment and transaction lifetime', () => {
     ).toEqual([])
   })
   it('reports a deferred constraint rejection at COMMIT as a known rollback', async () => {
+    const before = await singlePool.query('select pg_backend_pid() as pid')
     await expect(
-      withTransaction({ pool }, async (tx) => {
+      withTransaction({ pool: singlePool }, async (tx) => {
         await tx.query(
           'create temporary table deferred_failure (n integer unique deferrable initially deferred) on commit drop',
         )
         await tx.query('insert into deferred_failure values (1),(1)')
       }),
     ).rejects.toMatchObject({ code: '23505', severity: 'ERROR' })
+    expect(
+      (await singlePool.query('select pg_backend_pid() as pid')).rows[0].pid,
+    ).toBe(before.rows[0].pid)
   })
   it.each(['before', 'after'] as const)(
     'reconciles a lost %s-COMMIT acknowledgment without retrying',
     async (when) => {
       let armed = false
+      const released: boolean[] = []
       const faulty: PoolLike = {
         query: pool.query.bind(pool),
         connect: async () => {
@@ -354,7 +397,10 @@ describe('commit acknowledgment and transaction lifetime', () => {
               }
               return client.query<R>(text, values)
             },
-            release: (discard) => client.release(discard),
+            release: (discard) => {
+              released.push(discard === true)
+              client.release(discard)
+            },
           }
         },
       }
@@ -365,6 +411,7 @@ describe('commit acknowledgment and transaction lifetime', () => {
         .catch((error) => error)
       expect(error).toBeInstanceOf(ExecutionIndeterminateError)
       expect(error.caseId).toBe(f.id)
+      expect(released.at(-1)).toBe(true)
       expect(await f.storage.reconcileExecution(f.id, error.executionId)).toBe(
         when === 'after' ? 'completed' : 'not-committed',
       )
@@ -374,6 +421,45 @@ describe('commit acknowledgment and transaction lifetime', () => {
       expect((await f.engine.journal(f.id)).map((e) => e.entry)).toEqual(
         when === 'after' ? ['started', 'completed'] : [],
       )
+    },
+  )
+  it.each(['begin', 'rollback-error', 'rollback-unknown'] as const)(
+    'discards a connection after %s fails to establish a reusable transaction state',
+    async (fault) => {
+      const original = new Error('application failed')
+      const transport = new Error('connection failed')
+      const released: boolean[] = []
+      const faulty: PoolLike = {
+        query: singlePool.query.bind(singlePool),
+        connect: async () => {
+          const client = await singlePool.connect()
+          return {
+            query: async <R extends QueryResultRow>(
+              text: string,
+              values?: unknown[],
+            ) => {
+              if (fault === 'begin' && text.startsWith('begin')) throw transport
+              if (fault === 'rollback-error' && text === 'rollback')
+                throw transport
+              const result = await client.query<R>(text, values)
+              return fault === 'rollback-unknown' && text === 'rollback'
+                ? { ...result, command: 'UNKNOWN' }
+                : result
+            },
+            release: (discard) => {
+              released.push(discard === true)
+              client.release(discard)
+            },
+          }
+        },
+      }
+      await expect(
+        withTransaction({ pool: faulty }, async () => {
+          throw original
+        }),
+      ).rejects.toBe(fault === 'begin' ? transport : original)
+      expect(released).toEqual([true])
+      expect(singlePool.totalCount).toBe(0)
     },
   )
   it('does not let a retained transaction write after its operation ends', async () => {
