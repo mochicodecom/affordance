@@ -91,8 +91,8 @@ describe('exception 1: wire reconciliation', () => {
     // through ingestion, and the classification rides that same commit.
     const recorded = (
       await client.journal(caseId, { step: 'record-wire' })
-    ).find((entry) => entry.entry === 'completed')
-    expect(recorded?.actor).toMatchObject({ id: 'system:escrow' })
+    ).find((entry) => entry.entry === 'observed')
+    expect(recorded?.actor).toBe('system:escrow')
   })
 
   it('opens exactly one resolution step for a short wire, and closes on it', async () => {

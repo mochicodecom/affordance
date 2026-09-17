@@ -1,10 +1,24 @@
+import {
+  type LaunchConfiguration,
+  type LaunchResult,
+  launchStep,
+  type ResolveExecutionOptions,
+  requireLaunchPort,
+} from '../execution/launch.js'
+import type { LaunchedExecution } from '../execution/launch-port.js'
+import {
+  type RunConfiguration,
+  type RunResult,
+  runStep,
+  safeActor,
+} from '../execution/run.js'
 /**
  * The engine: the case-type registry bound to the case store.
  *
  * `createEngine({ storage, caseTypes })` wires the halves together — persistence
  * (`../store`), guard evaluation (`../guards`), the definition API
  * (`../model`) and the execution lifecycle (`../execution`) — into the
- * framework's public face: `affordances`, `explain`, `execute`, `journal`.
+ * framework's public face: `affordances`, `explain`, `run`, `launch`, `journal`.
  *
  * The engine is where `asOf` defaults to now: conditions never read the
  * clock, so `EngineOptions.now` — wall clock by default — is the one clock,
@@ -14,17 +28,10 @@
 
 import type { StandardSchemaV1 } from '@standard-schema/spec'
 import type {
-  ExecuteOptions,
-  ExecutionResult,
   JournalEntry,
   JournalFilter,
+  RunOptions,
 } from '../execution/index.js'
-import { executeStep } from '../execution/index.js'
-import {
-  type ExecuteNonAtomicOptions,
-  executeNonAtomicStep,
-  type NonAtomicExecutionResult,
-} from '../execution/non-atomic.js'
 import type { Instant } from '../guards/index.js'
 import type {
   Correlation,
@@ -61,6 +68,8 @@ import { UnknownCaseTypeError } from './errors.js'
 
 /** Options for {@link createEngine}. */
 export interface EngineOptions {
+  readonly operations?: RunConfiguration
+  readonly launch?: LaunchConfiguration
   /** One coordinated storage implementation for all engine persistence. */
   readonly storage: EngineStorage
   /** Every case type this engine serves; a loaded case's `case_type` must name one of them. */
@@ -87,6 +96,21 @@ export interface EngineOptions {
 export type ExplainOptions = ExplainRequest
 
 export interface Engine {
+  /** Invoke once; await completion and a bounded optional diff journal. */
+  run(caseId: string, stepName: string, options: RunOptions): Promise<RunResult>
+  /** Return after handler entry. Requires an application-owned background runtime. */
+  launch(
+    caseId: string,
+    stepName: string,
+    options: RunOptions,
+  ): Promise<LaunchResult>
+  /** Durable status for launched executions only; ordinary runs return null. */
+  getExecution(executionId: string): Promise<LaunchedExecution | null>
+  /** Application authorization and reconciliation must precede explicit resolution. */
+  resolveExecution(
+    executionId: string,
+    options: ResolveExecutionOptions,
+  ): Promise<LaunchedExecution>
   /** List validated cases of registered types, newest first. Throws on unreadable state. */
   listCases(options?: CaseListOptions): Promise<CasePage>
 
@@ -131,29 +155,6 @@ export interface Engine {
     stepName: string,
     options?: ExplainOptions,
   ): Promise<AffordanceExplanation>
-
-  /**
-   * Execute one short protected domain operation. The adapter serializes
-   * cooperating writers; core reloads state and reevaluates the guard.
-   * Network calls belong outside this operation. Conflicts are never retried silently.
-   */
-  execute(
-    caseId: string,
-    stepName: string,
-    options: ExecuteOptions,
-  ): Promise<ExecutionResult>
-
-  /**
-   * Invoke a registered handler through application-owned operations. State/input and
-   * guards are validated before invocation, without serialization against writers.
-   * No journal, delta, sequence or metadata is written. Handler errors propagate
-   * unchanged and may follow committed effects; core never retries the operation.
-   */
-  executeNonAtomic(
-    caseId: string,
-    stepName: string,
-    options: ExecuteNonAtomicOptions,
-  ): Promise<NonAtomicExecutionResult>
 
   /**
    * Read a case's journal, oldest first. Filter by `scopeKey` for
@@ -206,9 +207,7 @@ export interface Engine {
   ingest(event: ExternalEvent): Promise<IngestionResult>
 
   /**
-   * Register an external identifier against a case out of band. Handlers
-   * should prefer `ctx.correlate(...)`, which rides the same commit as the
-   * state recording that the interaction was started.
+   * Explicitly register an external identifier against a Case.
    */
   correlate(registration: CorrelationRegistration): Promise<Correlation>
 
@@ -261,6 +260,7 @@ export const createEngine = (options: EngineOptions): Engine => {
     caseTypeFor,
     ingestion: normalizeIngestion(options.ingestion),
     now,
+    operations: options.operations,
   }
 
   /** Load the case, resolve its type from the registry, validate state against the type's schema. */
@@ -281,6 +281,33 @@ export const createEngine = (options: EngineOptions): Engine => {
   }
 
   return {
+    run: (id, step, args) =>
+      runStep(environment, id, step, args, options.operations ?? {}),
+    launch: (id, step, args) =>
+      launchStep(
+        environment,
+        id,
+        step,
+        args,
+        options.operations ?? {},
+        options.launch,
+      ),
+    getExecution: (id) => requireLaunchPort(environment).get(id),
+    resolveExecution: async (id, args) => {
+      if (
+        typeof args.reason !== 'string' ||
+        !args.reason.trim() ||
+        args.reason.length > 2000
+      )
+        throw new TypeError(
+          'resolution reason must contain 1 to 2000 characters',
+        )
+      return requireLaunchPort(environment).resolve(
+        id,
+        safeActor(args.actor, options.operations ?? {}),
+        args.reason,
+      )
+    },
     listCases: async (options = {}) => {
       const limit = options.limit ?? 100
       if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
@@ -337,28 +364,6 @@ export const createEngine = (options: EngineOptions): Engine => {
         explainContext(explainOptions, now),
       )
     },
-    // Rebuilt field by field, not spread: whatever extra properties a
-    // caller's object drags along stop here, so the lifecycle only ever
-    // sees the options the public interface declares.
-    execute: (caseId, stepName, { actor, scopeKey, input, asOf }) =>
-      executeStep(environment, caseId, stepName, {
-        actor,
-        scopeKey,
-        input,
-        asOf,
-      }),
-    executeNonAtomic: (
-      caseId,
-      stepName,
-      { actor, scopeKey, input, asOf, repos },
-    ) =>
-      executeNonAtomicStep(environment, caseId, stepName, {
-        actor,
-        scopeKey,
-        input,
-        asOf,
-        repos,
-      }),
     journal: (caseId, filter) => storage.journal.read(caseId, filter),
     case: async (caseId) => {
       const { handle, state } = await resolveCase(

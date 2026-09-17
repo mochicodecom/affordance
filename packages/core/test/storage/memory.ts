@@ -22,9 +22,10 @@ import {
   projectEntry,
   serializeValue,
 } from '../../src/storage.js'
+import { memoryLaunches } from './memory-launches.js'
 
 const copy = <T>(v: T): T => deserializeValue(serializeValue(v)) as T
-export const createMemoryStorage = () => {
+export const createMemoryStorage = (now: () => number = Date.now) => {
   let data = {
     cases: new Map<string, StoredCase>(),
     domains: new Map<string, unknown>(),
@@ -36,10 +37,6 @@ export const createMemoryStorage = () => {
         Omit<DeliverySettlement, 'status'> & { event: ExternalEvent }
     >(),
   }
-  const factories = new Map<
-    string,
-    (read: () => unknown, write: (v: unknown) => void) => unknown
-  >()
   let tail = Promise.resolve()
   const atomic = async <T>(fn: () => Promise<T>): Promise<T> => {
     const previous = tail
@@ -157,41 +154,18 @@ export const createMemoryStorage = () => {
           }
         }),
     },
-    execution: {
-      withCase: (id, _executionId, run) =>
-        atomic(async () => {
-          const row = get(id)
-          const factory = factories.get(row.caseTypeName)
-          if (!factory) throw new Error('missing binding')
-          const repos = factory(
-            () => copy(data.domains.get(row.reference)),
-            (value) => {
-              data.domains.set(row.reference, copy(value))
-            },
-          )
-          return run({
-            repos,
-            loadCase: async () => get(id),
-            persistCompletion: async (e) => {
-              const metadata = data.cases.get(id)!
-              metadata.seq++
-              metadata.updatedAt = new Date()
-              if (e.dormancy === 'ended') metadata.endedAt = new Date()
-              if (e.dormancy === 'reopened') metadata.endedAt = null
-              for (const c of e.correlations) await correlation(c)
-              const started = await append(e.started)
-              const completed = await append(e.completed)
-              return {
-                seq: metadata.seq,
-                endedAt: metadata.endedAt?.toISOString() ?? null,
-                startedAt: started.recordedAt,
-                committedAt: completed.recordedAt,
-              }
-            },
-          })
-        }),
-    },
+    launches: memoryLaunches(now),
     journal: {
+      observe: (entry) =>
+        atomic(async () => {
+          if (
+            !data.journal.some(
+              (e) =>
+                e.entry === 'observed' && e.executionId === entry.executionId,
+            )
+          )
+            await append(entry)
+        }),
       read: (id, filter = {}) =>
         atomic(async () =>
           structuredClone(
@@ -297,20 +271,9 @@ export const createMemoryStorage = () => {
   }
   return {
     storage,
-    bindCase<S extends StandardSchemaV1, A, R>(
-      definition: CaseTypeDefinition<S, A, R>,
-      factory: (
-        read: () => StandardSchemaV1.InferOutput<S>,
-        write: (value: StandardSchemaV1.InferOutput<S>) => void,
-      ) => NoInfer<R>,
+    bindCase<S extends StandardSchemaV1, A>(
+      definition: CaseTypeDefinition<S, A>,
     ) {
-      factories.set(
-        definition.name,
-        factory as (
-          read: () => unknown,
-          write: (v: unknown) => void,
-        ) => unknown,
-      )
       return boundCase(definition, storage)
     },
     seed: async (reference: string, state: unknown) =>

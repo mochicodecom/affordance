@@ -1,11 +1,17 @@
+import {
+  createBackgroundRuntime,
+  ExecutionNotResolvableError,
+  isAffordanceError,
+  LaunchBlockedError,
+  LaunchUnresolvedError,
+} from '@affordance/core'
 import { withTransaction } from '@affordance/pg'
+import { purchaseOperations } from './operation.js'
 import { HOUSE_PURCHASE } from './purchase.js'
 import {
   bootstrapPurchases,
   insertPurchase,
   loadPurchase,
-  protectPurchase,
-  purchaseRepositories,
 } from './repository.js'
 /**
  * Wiring: the engine, the providers, the HTTP adapter — plus the demo
@@ -212,6 +218,92 @@ const createDevConsole = ({
     return c.json({ ok: true })
   })
 
+  // This demo uses header personas; production hosts must authenticate and authorize these routes.
+  dev.get('/dev/executions/:id', async (c) => {
+    if (
+      !(c.req.header(ACTOR_HEADERS.roles) ?? '')
+        .split(',')
+        .includes('organizer')
+    )
+      return c.json({ error: 'not-permitted' }, 403)
+    const record = await engine.getExecution(c.req.param('id'))
+    return record ? c.json(record) : c.json({ error: 'not-found' }, 404)
+  })
+  dev.post('/dev/executions/:id/resolve', async (c) => {
+    if (
+      !(c.req.header(ACTOR_HEADERS.roles) ?? '')
+        .split(',')
+        .includes('organizer')
+    )
+      return c.json({ error: 'not-permitted' }, 403)
+    const body = await c.req.json().catch(() => null)
+    if (
+      !body ||
+      typeof body.reason !== 'string' ||
+      !body.reason.trim() ||
+      body.reason.length > 2000
+    )
+      return c.json(
+        {
+          error: 'bad-request',
+          message: 'A reconciliation reason is required',
+        },
+        400,
+      )
+    try {
+      return c.json(
+        await engine.resolveExecution(c.req.param('id'), {
+          actor: { id: c.req.header(ACTOR_HEADERS.id) ?? 'anonymous' },
+          reason: body.reason,
+        }),
+      )
+    } catch (error) {
+      if (!(error instanceof ExecutionNotResolvableError)) throw error
+      return c.json(
+        {
+          error: 'conflict',
+          message: 'Execution is missing or not unresolved',
+        },
+        409,
+      )
+    }
+  })
+  dev.post('/dev/cases/:id/steps/:step/launch', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!body || typeof body !== 'object' || Array.isArray(body))
+      return c.json({ error: 'bad-request' }, 400)
+    const actor = {
+      id: c.req.header(ACTOR_HEADERS.id) ?? 'anonymous',
+      roles: (c.req.header(ACTOR_HEADERS.roles) ?? '').split(','),
+    }
+    try {
+      return c.json(
+        await engine.launch(c.req.param('id'), c.req.param('step'), {
+          actor,
+          input: body.input,
+          ...(typeof body.scopeKey === 'string'
+            ? { scopeKey: body.scopeKey }
+            : {}),
+        }),
+        201,
+      )
+    } catch (error) {
+      if (error instanceof LaunchBlockedError)
+        return c.json({ error: 'launch-blocked', caseId: error.caseId }, 409)
+      if (error instanceof LaunchUnresolvedError)
+        return c.json(
+          { error: 'launch-unresolved', executionId: error.executionId },
+          503,
+        )
+      if (isAffordanceError(error))
+        return c.json(
+          { error: error.code, message: error.message },
+          error.code === 'step-not-available' ? 409 : 400,
+        )
+      throw error
+    }
+  })
+
   dev.get('/dev/world', async (c) => {
     const events = await Promise.all(
       services.outbox.map(async (entry) => {
@@ -354,61 +446,22 @@ export const createPurchaseApp = async (
 
   const storage = createPgStorage({ db: options.db })
   const caseTypes = [
-    storage.bindCase(createPurchaseDefinition(), {
-      load: loadPurchase,
-      protect: protectPurchase,
-      repositories: purchaseRepositories,
-    }),
+    storage.bindCase(
+      createPurchaseDefinition(purchaseOperations(options.db, services)),
+      {
+        load: loadPurchase,
+      },
+    ),
   ]
-  const atomicEngine = createEngine({
+  const runtime = createBackgroundRuntime()
+  const engine = createEngine({
+    launch: { runtime, leaseMs: 60_000 },
     storage,
     caseTypes,
     // Ingestion runs as *this app's* actor shape, not as the
     // framework's marker: `permits` conditions here read `roles`.
     ingestion: { actor: (event) => integration(event.system) },
   })
-
-  // Demo orchestration runs only after the atomic domain execution returns.
-  // Real adopters supply their existing delivery/recovery mechanism here.
-  const engine: Engine = {
-    ...atomicEngine,
-    execute: async (id, step, executeOptions) => {
-      const result = await atomicEngine.execute(id, step, executeOptions)
-      const state = result.state as Purchase
-      const buyer = state.buyers.find((b) => b.id === result.scopeKey)
-      try {
-        if (result.step === 'open-escrow')
-          services.applyForEscrowAccount({
-            address: state.purchase.address,
-            requestId: state.escrow.applicationId!,
-          })
-        if (result.step === 'start-verification' && buyer)
-          services.startVerification({
-            buyerId: buyer.id,
-            requestId: buyer.verification.checkId!,
-            ...(buyer.name.includes('(hit)')
-              ? { hits: ['sanctions:OFAC'] }
-              : {}),
-          })
-        if (result.step === 'send-agreement' && buyer)
-          services.sendEnvelope({
-            buyerId: buyer.id,
-            requestId: buyer.agreement!.envelopeId!,
-          })
-      } catch (error) {
-        // Demo diagnostics are separate from the confirmed domain result.
-        // Production dispatch and recovery belong to the adopter.
-        console.error('Provider dispatch failed after execution committed', {
-          caseId: result.caseId,
-          executionId: result.executionId,
-          step: result.step,
-          scopeKey: result.scopeKey,
-          error,
-        })
-      }
-      return result
-    },
-  }
 
   const basePath = options.basePath ?? '/api'
 
@@ -478,6 +531,7 @@ export const createPurchaseApp = async (
     http,
     settle,
     stop: async () => {
+      await runtime.drain()
       services.stop()
     },
   }

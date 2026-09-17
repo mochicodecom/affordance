@@ -2,6 +2,8 @@
 
 export { deleteCase } from './admin.js'
 export { bootstrap, CASE_TABLES, FRAMEWORK_SCHEMA } from './bootstrap.js'
+/** Explicit application-owned correlation writes, optionally inside its transaction. */
+export { registerCorrelation } from './correlation.js'
 export type {
   DatabaseAccess,
   PoolLike,

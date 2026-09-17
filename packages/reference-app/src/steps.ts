@@ -29,16 +29,15 @@ import type {
   ScopedConditionContext,
   StepDefinition,
 } from '@affordance/core'
-import { actor, anyOf, repositories, stepsOf } from '@affordance/core'
+import { anyOf } from '@affordance/core'
 import { z } from 'zod'
-import type { PurchaseRepositories } from './repository.js'
+import type { PurchaseStep } from './operation.js'
 import type { MockServices } from './services.js'
 import type { Buyer, Purchase, PurchaseActor, Wire } from './state.js'
 import {
   arrivedAmount,
   buyerOf,
   hasRole,
-  PurchaseState,
   registeredAccountOf,
   wireSettled,
 } from './state.js'
@@ -67,576 +66,593 @@ type BuyerCtx = ScopedConditionContext<Buyer, PurchaseActor>
  * and below still annotate: they are defined outside a step call, where
  * there is no context to infer from.)
  */
-const purchaseStep = stepsOf(
-  PurchaseState,
-  actor<PurchaseActor>(),
-  repositories<PurchaseRepositories>(),
-)
+export const createPurchaseSteps = (purchaseStep: PurchaseStep) => {
+  const isOrganizer = (_s: Purchase, ctx: Ctx) => ({
+    ok: hasRole(ctx.actor, 'organizer'),
+    reason: 'only the organizer can take this step',
+  })
 
-const isOrganizer = (_s: Purchase, ctx: Ctx) => ({
-  ok: hasRole(ctx.actor, 'organizer'),
-  reason: 'only the organizer can take this step',
-})
+  const isEscrowOfficer = (_s: Purchase, ctx: Ctx) => ({
+    ok: hasRole(ctx.actor, 'escrow-officer'),
+    reason: 'only the escrow officer can take this step',
+  })
 
-const isEscrowOfficer = (_s: Purchase, ctx: Ctx) => ({
-  ok: hasRole(ctx.actor, 'escrow-officer'),
-  reason: 'only the escrow officer can take this step',
-})
+  /**
+   * A materializing step exists to record what an external system said,
+   * so the only actor who should ever take one is an external
+   * system. `permits` is how that is said — and the effect is that these steps
+   * never appear as affordances to a person, without any concept of a "system
+   * step" existing in the framework.
+   */
+  const isIntegration = (_s: Purchase, ctx: Ctx) => ({
+    ok: hasRole(ctx.actor, 'integration'),
+    reason: 'this step records what an external system reported',
+  })
 
-/**
- * A materializing step exists to record what an external system said,
- * so the only actor who should ever take one is an external
- * system. `permits` is how that is said — and the effect is that these steps
- * never appear as affordances to a person, without any concept of a "system
- * step" existing in the framework.
- */
-const isIntegration = (_s: Purchase, ctx: Ctx) => ({
-  ok: hasRole(ctx.actor, 'integration'),
-  reason: 'this step records what an external system reported',
-})
+  /**
+   * The buyer themselves — nobody else, the organizer included. Deliberate:
+   * committing funds is the one step the demo loop cannot finish without a
+   * persona hop (organizer invites → buyer commits) — and that hop is what
+   * the demo exists to show.
+   */
+  const isThisBuyer = (_s: Purchase, ctx: BuyerCtx) => ({
+    ok: ctx.actor?.id === ctx.scope.id,
+    reason: 'this step belongs to the buyer it is about',
+  })
 
-/**
- * The buyer themselves — nobody else, the organizer included. Deliberate:
- * committing funds is the one step the demo loop cannot finish without a
- * persona hop (organizer invites → buyer commits) — and that hop is what
- * the demo exists to show.
- */
-const isThisBuyer = (_s: Purchase, ctx: BuyerCtx) => ({
-  ok: ctx.actor?.id === ctx.scope.id,
-  reason: 'this step belongs to the buyer it is about',
-})
+  const purchaseOpen = (s: Purchase) => ({
+    ok: s.purchase.closedAt === null,
+    reason: 'the purchase has closed',
+  })
 
-const purchaseOpen = (s: Purchase) => ({
-  ok: s.purchase.closedAt === null,
-  reason: 'the purchase has closed',
-})
+  // ---------------------------------------------------------------------------
+  // Purchase setup — the linear stretch. Each step's guard states the fact the
+  // previous step leaves in state, and its own fact negated (once-only). No
+  // step names another step; the chain is only these conditions meeting facts.
+  // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Purchase setup — the linear stretch. Each step's guard states the fact the
-// previous step leaves in state, and its own fact negated (once-only). No
-// step names another step; the chain is only these conditions meeting facts.
-// ---------------------------------------------------------------------------
+  const offerAccepted = (s: Purchase) => ({
+    ok: s.property.offerAcceptedAt !== null,
+    reason: 'the offer has not been accepted',
+  })
 
-const offerAccepted = (s: Purchase) => ({
-  ok: s.property.offerAcceptedAt !== null,
-  reason: 'the offer has not been accepted',
-})
+  const offerNotYetAccepted = (s: Purchase) => ({
+    ok: s.property.offerAcceptedAt === null,
+    reason: 'the offer has already been accepted',
+  })
 
-const offerNotYetAccepted = (s: Purchase) => ({
-  ok: s.property.offerAcceptedAt === null,
-  reason: 'the offer has already been accepted',
-})
+  const inspectionReportObtained = (s: Purchase) => ({
+    ok: s.property.inspectionReportId !== null,
+    reason: 'there is no inspection report yet',
+  })
 
-const inspectionReportObtained = (s: Purchase) => ({
-  ok: s.property.inspectionReportId !== null,
-  reason: 'there is no inspection report yet',
-})
+  const noInspectionReportYet = (s: Purchase) => ({
+    ok: s.property.inspectionReportId === null,
+    reason: 'the inspection report has already been obtained',
+  })
 
-const noInspectionReportYet = (s: Purchase) => ({
-  ok: s.property.inspectionReportId === null,
-  reason: 'the inspection report has already been obtained',
-})
+  const escrowNotYetApplied = (s: Purchase) => ({
+    ok: s.escrow.applicationId === null,
+    reason: 'an escrow account has already been applied for',
+  })
 
-const escrowNotYetApplied = (s: Purchase) => ({
-  ok: s.escrow.applicationId === null,
-  reason: 'an escrow account has already been applied for',
-})
-
-const acceptOffer = purchaseStep({
-  name: 'accept-offer',
-  title: 'Seller accepted our offer',
-  requires: { offerNotYetAccepted, purchaseOpen },
-  permits: { isOrganizer },
-  handler: async (ctx) => {
-    await ctx.repos.acceptOffer('2026-08-01T09:00:00.000Z')
-    await ctx.repos.note('offer accepted')
-  },
-})
-
-const obtainInspectionReport = purchaseStep({
-  name: 'obtain-inspection-report',
-  title: 'Obtain the inspection report',
-  requires: { offerAccepted, noInspectionReportYet },
-  permits: { isOrganizer },
-  handler: async (ctx) => {
-    await ctx.repos.inspect('insp_20260801')
-    await ctx.repos.note('inspection report obtained')
-  },
-})
-
-/**
- * Applies to the escrow company and registers how the answer will come back.
- * The account is not open when this commits — it is *applied for*, which is a
- * different fact and is the one the state records.
- */
-const openEscrow = () =>
-  purchaseStep({
-    name: 'open-escrow',
-    title: 'Open escrow',
-    requires: { inspectionReportObtained, escrowNotYetApplied },
+  const acceptOffer = purchaseStep({
+    name: 'accept-offer',
+    title: 'Seller accepted our offer',
+    requires: { offerNotYetAccepted, purchaseOpen },
     permits: { isOrganizer },
     handler: async (ctx) => {
-      const applicationId = `app_${randomUUID()}`
-      await ctx.repos.requestEscrow(applicationId)
-      ctx.correlate({
-        system: 'escrow',
-        externalId: applicationId,
-        scopeKey: null,
-        step: 'record-escrow-account',
-        metadata: { address: ctx.state.purchase.address },
-      })
-      await ctx.repos.note('escrow account requested')
+      await ctx.repos.acceptOffer('2026-08-01T09:00:00.000Z')
+      await ctx.repos.note('offer accepted')
     },
   })
 
-export const createPurchaseSetup = () => [
-  acceptOffer,
-  obtainInspectionReport,
-  openEscrow(),
-]
+  const obtainInspectionReport = purchaseStep({
+    name: 'obtain-inspection-report',
+    title: 'Obtain the inspection report',
+    requires: { offerAccepted, noInspectionReportYet },
+    permits: { isOrganizer },
+    handler: async (ctx) => {
+      await ctx.repos.inspect('insp_20260801')
+      await ctx.repos.note('inspection report obtained')
+    },
+  })
 
-/** Materializes the escrow company's answer — routed here by the event, not by a poll. */
-export const recordEscrowAccount = purchaseStep({
-  name: 'record-escrow-account',
-  title: 'Record the escrow account',
-  description:
-    'Materialize the escrow company’s answer: the account it opened for this purchase. Delivered by the escrow system’s webhook, or entered when the answer arrived out of band.',
-  requires: {
-    applied: (s) => ({
-      ok: s.escrow.status === 'requested',
-      reason: 'no escrow application is outstanding',
-    }),
-  },
-  permits: { isIntegration },
-  input: z.object({ accountId: z.string(), openedAt: z.string() }),
-  handler: async (ctx) => {
-    await ctx.repos.recordEscrow(ctx.input.accountId)
-    await ctx.repos.note(`escrow account ${ctx.input.accountId} opened`)
-  },
-})
+  /**
+   * Applies to the escrow company and registers how the answer will come back.
+   * The account is not open when this commits — it is *applied for*, which is a
+   * different fact and is the one the state records.
+   */
+  const openEscrow = () =>
+    purchaseStep({
+      name: 'open-escrow',
+      title: 'Open escrow',
+      requires: { inspectionReportObtained, escrowNotYetApplied },
+      permits: { isOrganizer },
+      handler: async (ctx) => {
+        const applicationId = `app_${randomUUID()}`
+        await ctx.repos.requestEscrow(applicationId)
+        ctx.correlate({
+          system: 'escrow',
+          externalId: applicationId,
+          scopeKey: null,
+          step: 'record-escrow-account',
+          metadata: { address: ctx.state.purchase.address },
+        })
+        await ctx.repos.note('escrow account requested')
+      },
+    })
 
-// ---------------------------------------------------------------------------
-// Buyers: invitation, commitment, verification, agreement.
-// ---------------------------------------------------------------------------
+  const createPurchaseSetup = () => [
+    acceptOffer,
+    obtainInspectionReport,
+    openEscrow(),
+  ]
 
-export const inviteBuyer = purchaseStep({
-  name: 'invite-buyer',
-  title: 'Invite a buyer',
-  requires: { purchaseOpen },
-  permits: { isOrganizer },
-  // Identity is the server's to mint, not the caller's to choose: the input
-  // is the name alone, and the handler issues `buyer:<uuid>` in the same
-  // `type:uuid` shape the framework uses for cases. External systems'
-  // identifiers (wire ids, account ids, envelopes) stay caller-supplied —
-  // those are the providers' own correlation identity.
-  input: z.object({ name: z.string() }),
-  handler: async (ctx) => {
-    await ctx.repos.invite(ctx.input.name)
-    await ctx.repos.note(`${ctx.input.name} invited`)
-  },
-})
+  /** Materializes the escrow company's answer — routed here by the event, not by a poll. */
+  const recordEscrowAccount = purchaseStep({
+    name: 'record-escrow-account',
+    title: 'Record the escrow account',
+    description:
+      'Materialize the escrow company’s answer: the account it opened for this purchase. Delivered by the escrow system’s webhook, or entered when the answer arrived out of band.',
+    requires: {
+      applied: (s) => ({
+        ok: s.escrow.status === 'requested',
+        reason: 'no escrow application is outstanding',
+      }),
+    },
+    permits: { isIntegration },
+    input: z.object({ accountId: z.string(), openedAt: z.string() }),
+    handler: async (ctx) => {
+      await ctx.repos.recordEscrow(ctx.input.accountId)
+      await ctx.repos.note(`escrow account ${ctx.input.accountId} opened`)
+    },
+  })
 
-export const recordCommitment = purchaseStep({
-  name: 'record-commitment',
-  title: 'Commit funds',
-  scope: {
-    select: (s) => s.buyers.filter((b) => b.committed === null),
-    key: (b) => b.id,
-  },
-  requires: { purchaseOpen },
-  permits: { isThisBuyer },
-  input: z.object({ amount: z.number().positive() }),
-  handler: async (ctx) => {
-    await ctx.repos.commit(ctx.scopeKey, ctx.input.amount)
-    await ctx.repos.note(`${ctx.scopeKey} committed ${ctx.input.amount}`)
-  },
-})
+  // ---------------------------------------------------------------------------
+  // Buyers: invitation, commitment, verification, agreement.
+  // ---------------------------------------------------------------------------
 
-export const createStartVerification = () =>
-  purchaseStep({
-    name: 'start-verification',
-    title: 'Start identity verification',
+  const inviteBuyer = purchaseStep({
+    name: 'invite-buyer',
+    title: 'Invite a buyer',
+    requires: { purchaseOpen },
+    permits: { isOrganizer },
+    // Identity is the server's to mint, not the caller's to choose: the input
+    // is the name alone, and the handler issues `buyer:<uuid>` in the same
+    // `type:uuid` shape the framework uses for cases. External systems'
+    // identifiers (wire ids, account ids, envelopes) stay caller-supplied —
+    // those are the providers' own correlation identity.
+    input: z.object({ name: z.string() }),
+    handler: async (ctx) => {
+      await ctx.repos.invite(ctx.input.name)
+      await ctx.repos.note(`${ctx.input.name} invited`)
+    },
+  })
+
+  const recordCommitment = purchaseStep({
+    name: 'record-commitment',
+    title: 'Commit funds',
     scope: {
-      select: (s) =>
-        s.buyers.filter(
-          (b) => b.committed !== null && b.verification.status === 'none',
-        ),
+      select: (s) => s.buyers.filter((b) => b.committed === null),
       key: (b) => b.id,
     },
-    permits: { isOrganizer },
+    requires: { purchaseOpen },
+    permits: { isThisBuyer },
+    input: z.object({ amount: z.number().positive() }),
     handler: async (ctx) => {
-      const checkId = `chk_${randomUUID()}`
-      await ctx.repos.requestVerification(ctx.scopeKey, checkId)
-      ctx.correlate({
-        system: 'verify',
-        externalId: checkId,
-        step: 'record-verification-result',
-      })
+      await ctx.repos.commit(ctx.scopeKey, ctx.input.amount)
+      await ctx.repos.note(`${ctx.scopeKey} committed ${ctx.input.amount}`)
     },
   })
 
-export const recordVerificationResult = purchaseStep({
-  name: 'record-verification-result',
-  title: 'Record verification result',
-  description:
-    'Materialize the identity provider’s verdict for one buyer — verified, or flagged for review. Delivered by the provider’s webhook.',
-  scope: {
-    select: (s) => s.buyers.filter((b) => b.verification.status === 'pending'),
-    key: (b) => b.id,
-  },
-  permits: { isIntegration },
-  input: z.object({
-    status: z.enum(['clear', 'review']),
-    hits: z.array(z.string()).default([]),
-    completedAt: z.string(),
-  }),
-  handler: async (ctx) => {
-    await ctx.repos.verify(
-      ctx.scopeKey,
-      ctx.input.status,
-      ctx.input.hits,
-      ctx.input.status === 'review' ? ctx.input.completedAt : null,
-    )
-    await ctx.repos.note(`${ctx.scopeKey} verification ${ctx.input.status}`)
-  },
-})
+  const createStartVerification = () =>
+    purchaseStep({
+      name: 'start-verification',
+      title: 'Start identity verification',
+      scope: {
+        select: (s) =>
+          s.buyers.filter(
+            (b) => b.committed !== null && b.verification.status === 'none',
+          ),
+        key: (b) => b.id,
+      },
+      permits: { isOrganizer },
+      handler: async (ctx) => {
+        const checkId = `chk_${randomUUID()}`
+        await ctx.repos.requestVerification(ctx.scopeKey, checkId)
+        ctx.correlate({
+          system: 'verify',
+          externalId: checkId,
+          step: 'record-verification-result',
+        })
+      },
+    })
 
-/**
- * The verification escalation exception: a hit puts a buyer in review, and
- * the case *offers* an enhanced-review escalation for as long as the review
- * stands unresolved — whether a stalled review warrants it is the escrow
- * officer's call.
- */
-export const escalateVerification = purchaseStep({
-  name: 'escalate-verification',
-  title: 'Escalate a stalled verification',
-  description:
-    'Move a buyer whose verification sits in review into enhanced review — the escrow officer’s judgement that the stall warrants a closer look.',
-  scope: {
-    select: (s) => s.buyers.filter((b) => b.verification.status === 'review'),
-    key: (b) => b.id,
-  },
-  permits: { isEscrowOfficer },
-  handler: async (ctx) => {
-    await ctx.repos.escalate(ctx.scopeKey, '2026-08-15T10:00:00.000Z')
-    await ctx.repos.note(`${ctx.scopeKey} escalated to enhanced review`)
-  },
-})
+  const recordVerificationResult = purchaseStep({
+    name: 'record-verification-result',
+    title: 'Record verification result',
+    description:
+      'Materialize the identity provider’s verdict for one buyer — verified, or flagged for review. Delivered by the provider’s webhook.',
+    scope: {
+      select: (s) =>
+        s.buyers.filter((b) => b.verification.status === 'pending'),
+      key: (b) => b.id,
+    },
+    permits: { isIntegration },
+    input: z.object({
+      status: z.enum(['clear', 'review']),
+      hits: z.array(z.string()).default([]),
+      completedAt: z.string(),
+    }),
+    handler: async (ctx) => {
+      await ctx.repos.verify(
+        ctx.scopeKey,
+        ctx.input.status,
+        ctx.input.hits,
+        ctx.input.status === 'review' ? ctx.input.completedAt : null,
+      )
+      await ctx.repos.note(`${ctx.scopeKey} verification ${ctx.input.status}`)
+    },
+  })
 
-/** Enhanced review's outcome — the only way out of `escalated`, and a human's call. */
-export const clearEnhancedReview = purchaseStep({
-  name: 'clear-enhanced-review',
-  title: 'Clear enhanced review',
-  description:
-    'Conclude a buyer’s enhanced review and mark them verified — the escrow officer vouches for the identity.',
-  scope: {
-    select: (s) =>
-      s.buyers.filter((b) => b.verification.status === 'escalated'),
-    key: (b) => b.id,
-  },
-  permits: { isEscrowOfficer },
-  input: z.object({ cleared: z.boolean() }),
-  handler: async (ctx) => {
-    await ctx.repos.clear(ctx.scopeKey, ctx.input.cleared)
-    await ctx.repos.note(
-      ctx.scopeKey +
-        ' enhanced review ' +
-        (ctx.input.cleared ? 'cleared' : 'rejected'),
-    )
-  },
-})
+  /**
+   * The verification escalation exception: a hit puts a buyer in review, and
+   * the case *offers* an enhanced-review escalation for as long as the review
+   * stands unresolved — whether a stalled review warrants it is the escrow
+   * officer's call.
+   */
+  const escalateVerification = purchaseStep({
+    name: 'escalate-verification',
+    title: 'Escalate a stalled verification',
+    description:
+      'Move a buyer whose verification sits in review into enhanced review — the escrow officer’s judgement that the stall warrants a closer look.',
+    scope: {
+      select: (s) => s.buyers.filter((b) => b.verification.status === 'review'),
+      key: (b) => b.id,
+    },
+    permits: { isEscrowOfficer },
+    handler: async (ctx) => {
+      await ctx.repos.escalate(ctx.scopeKey, '2026-08-15T10:00:00.000Z')
+      await ctx.repos.note(`${ctx.scopeKey} escalated to enhanced review`)
+    },
+  })
 
-export const createSendAgreement = () =>
-  purchaseStep({
-    name: 'send-agreement',
-    title: 'Send the purchase agreement',
+  /** Enhanced review's outcome — the only way out of `escalated`, and a human's call. */
+  const clearEnhancedReview = purchaseStep({
+    name: 'clear-enhanced-review',
+    title: 'Clear enhanced review',
+    description:
+      'Conclude a buyer’s enhanced review and mark them verified — the escrow officer vouches for the identity.',
+    scope: {
+      select: (s) =>
+        s.buyers.filter((b) => b.verification.status === 'escalated'),
+      key: (b) => b.id,
+    },
+    permits: { isEscrowOfficer },
+    input: z.object({ cleared: z.boolean() }),
+    handler: async (ctx) => {
+      await ctx.repos.clear(ctx.scopeKey, ctx.input.cleared)
+      await ctx.repos.note(
+        ctx.scopeKey +
+          ' enhanced review ' +
+          (ctx.input.cleared ? 'cleared' : 'rejected'),
+      )
+    },
+  })
+
+  const createSendAgreement = () =>
+    purchaseStep({
+      name: 'send-agreement',
+      title: 'Send the purchase agreement',
+      scope: {
+        select: (s) =>
+          s.buyers.filter(
+            (b) =>
+              b.verification.status === 'clear' &&
+              !(b.agreement?.signed ?? false) &&
+              (b.agreement?.envelopeId ?? null) === null,
+          ),
+        key: (b) => b.id,
+      },
+      requires: { purchaseOpen },
+      permits: { isOrganizer },
+      handler: async (ctx) => {
+        const envelopeId = `env_${randomUUID()}`
+        await ctx.repos.agreement(ctx.scopeKey, envelopeId)
+        ctx.correlate({
+          system: 'esign',
+          externalId: envelopeId,
+          step: 'record-signature',
+        })
+      },
+    })
+
+  const recordSignature = purchaseStep({
+    name: 'record-signature',
+    title: 'Record a signature',
+    description:
+      'Materialize one signer’s completed signature from the e-sign provider. Delivered by the provider’s webhook.',
     scope: {
       select: (s) =>
         s.buyers.filter(
           (b) =>
-            b.verification.status === 'clear' &&
-            !(b.agreement?.signed ?? false) &&
-            (b.agreement?.envelopeId ?? null) === null,
+            (b.agreement?.envelopeId ?? null) !== null &&
+            !(b.agreement?.signed ?? false),
         ),
       key: (b) => b.id,
     },
-    requires: { purchaseOpen },
-    permits: { isOrganizer },
+    permits: { isIntegration },
+    input: z.object({ signedAt: z.string() }),
     handler: async (ctx) => {
-      const envelopeId = `env_${randomUUID()}`
-      await ctx.repos.agreement(ctx.scopeKey, envelopeId)
-      ctx.correlate({
-        system: 'esign',
-        externalId: envelopeId,
-        step: 'record-signature',
-      })
+      await ctx.repos.sign(ctx.scopeKey, ctx.input.signedAt)
+      await ctx.repos.note(`${ctx.scopeKey} signed`)
     },
   })
 
-export const recordSignature = purchaseStep({
-  name: 'record-signature',
-  title: 'Record a signature',
-  description:
-    'Materialize one signer’s completed signature from the e-sign provider. Delivered by the provider’s webhook.',
-  scope: {
-    select: (s) =>
-      s.buyers.filter(
-        (b) =>
-          (b.agreement?.envelopeId ?? null) !== null &&
-          !(b.agreement?.signed ?? false),
-      ),
-    key: (b) => b.id,
-  },
-  permits: { isIntegration },
-  input: z.object({ signedAt: z.string() }),
-  handler: async (ctx) => {
-    await ctx.repos.sign(ctx.scopeKey, ctx.input.signedAt)
-    await ctx.repos.note(`${ctx.scopeKey} signed`)
-  },
-})
+  // ---------------------------------------------------------------------------
+  // Money: the funding call, the wires, and reconciliation.
+  // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Money: the funding call, the wires, and reconciliation.
-// ---------------------------------------------------------------------------
+  const committedBuyers = (s: Purchase): readonly Buyer[] =>
+    s.buyers.filter((b) => b.committed !== null)
 
-const committedBuyers = (s: Purchase): readonly Buyer[] =>
-  s.buyers.filter((b) => b.committed !== null)
-
-export const issueFundingCall = purchaseStep({
-  name: 'issue-funding-call',
-  title: 'Issue the funding call',
-  requires: {
-    purchaseOpen,
-    escrowReady: (s) => ({
-      ok: s.escrow.status === 'open',
-      reason: 'the escrow account is not open',
-    }),
-    hasBuyers: (s) => ({
-      ok: committedBuyers(s).length > 0,
-      reason: 'no buyer has committed',
-    }),
-    allSigned: (s) => {
-      // One traversal: the ok/reason pair visibly derives from the same list.
-      const unsigned = committedBuyers(s).filter(
-        (b) => !(b.agreement?.signed ?? false),
-      )
-      return {
-        ok: unsigned.length === 0,
-        reason: `${unsigned.length} committed buyers have not signed`,
-      }
+  const issueFundingCall = purchaseStep({
+    name: 'issue-funding-call',
+    title: 'Issue the funding call',
+    requires: {
+      purchaseOpen,
+      escrowReady: (s) => ({
+        ok: s.escrow.status === 'open',
+        reason: 'the escrow account is not open',
+      }),
+      hasBuyers: (s) => ({
+        ok: committedBuyers(s).length > 0,
+        reason: 'no buyer has committed',
+      }),
+      allSigned: (s) => {
+        // One traversal: the ok/reason pair visibly derives from the same list.
+        const unsigned = committedBuyers(s).filter(
+          (b) => !(b.agreement?.signed ?? false),
+        )
+        return {
+          ok: unsigned.length === 0,
+          reason: `${unsigned.length} committed buyers have not signed`,
+        }
+      },
+      notYetCalled: (s) => ({
+        ok: s.fundingCall === null,
+        reason: 'the funding call has already been issued',
+      }),
     },
-    notYetCalled: (s) => ({
-      ok: s.fundingCall === null,
-      reason: 'the funding call has already been issued',
-    }),
-  },
-  permits: { isOrganizer },
-  input: z.object({ reference: z.string() }),
-  handler: async (ctx) => {
-    await ctx.repos.funding(
-      committedBuyers(ctx.state).reduce(
-        (total, b) => total + (b.committed ?? 0),
-        0,
-      ),
-      '2026-08-10T09:00:00.000Z',
-      ctx.input.reference,
-    )
-    await ctx.repos.note(`funding call ${ctx.input.reference} issued`)
-  },
-})
+    permits: { isOrganizer },
+    input: z.object({ reference: z.string() }),
+    handler: async (ctx) => {
+      await ctx.repos.funding(
+        committedBuyers(ctx.state).reduce(
+          (total, b) => total + (b.committed ?? 0),
+          0,
+        ),
+        '2026-08-10T09:00:00.000Z',
+        ctx.input.reference,
+      )
+      await ctx.repos.note(`funding call ${ctx.input.reference} issued`)
+    },
+  })
 
-/**
- * Materializes a wire the escrow company announced, classified at the same
- * commit. Purchase-level: the event quotes the account.
- *
- * The wire reconciliation exception lives here: comparing a wire against its
- * buyer's commitment takes no judgement, so the classification is part of
- * recording the fact. What it produces is *state* — `short`, `over`,
- * `wrong-account` — and each of those has its own resolution step below,
- * guarded on it. No branch is drawn anywhere; the exception paths are simply
- * steps that become available when their facts are true.
- */
-export const recordWire = purchaseStep({
-  name: 'record-wire',
-  title: 'Record an incoming wire',
-  description:
-    'Materialize a wire the escrow bank announced, already classified against its buyer’s commitment: settled, short, over, or wrong-account. Delivered by the bank’s webhook.',
-  requires: {
+  /**
+   * Materializes a wire the escrow company announced, classified at the same
+   * commit. Purchase-level: the event quotes the account.
+   *
+   * The wire reconciliation exception lives here: comparing a wire against its
+   * buyer's commitment takes no judgement, so the classification is part of
+   * recording the fact. What it produces is *state* — `short`, `over`,
+   * `wrong-account` — and each of those has its own resolution step below,
+   * guarded on it. No branch is drawn anywhere; the exception paths are simply
+   * steps that become available when their facts are true.
+   */
+  const recordWire = purchaseStep({
+    name: 'record-wire',
+    title: 'Record an incoming wire',
+    description:
+      'Materialize a wire the escrow bank announced, already classified against its buyer’s commitment: settled, short, over, or wrong-account. Delivered by the bank’s webhook.',
+    requires: {
+      called: (s) => ({
+        ok: s.fundingCall !== null,
+        reason: 'no funding call has been issued',
+      }),
+    },
+    permits: { isIntegration },
+    input: z.object({
+      wireId: z.string(),
+      buyerId: z.string(),
+      amount: z.number(),
+      fromAccount: z.string().default(''),
+      receivedAt: z.string(),
+    }),
+    handler: async (ctx) => {
+      const expected = buyerOf(ctx.state, ctx.input.buyerId)?.committed ?? null
+      const outcome: Wire['outcome'] =
+        ctx.input.fromAccount !== registeredAccountOf(ctx.input.buyerId)
+          ? 'wrong-account'
+          : expected === null || ctx.input.amount === expected
+            ? 'matched'
+            : ctx.input.amount < expected
+              ? 'short'
+              : 'over'
+      await ctx.repos.wire({
+        id: ctx.input.wireId,
+        buyerId: ctx.input.buyerId,
+        amount: ctx.input.amount,
+        fromAccount: ctx.input.fromAccount,
+        receivedAt: ctx.input.receivedAt,
+        outcome,
+        resolution: null,
+      })
+      await ctx.repos.note(`wire ${ctx.input.wireId} recorded: ${outcome}`)
+    },
+  })
+
+  const resolutionStep = (
+    name: string,
+    title: string,
+    description: string,
+    outcome: Wire['outcome'],
+    resolution: NonNullable<Wire['resolution']>,
+    permits: Record<
+      string,
+      (s: Purchase, ctx: Ctx) => { ok: boolean; reason: string }
+    >,
+  ): StepDefinition<Purchase, PurchaseActor> =>
+    purchaseStep({
+      name,
+      title,
+      description,
+      scope: {
+        select: (s) =>
+          s.wires.filter((w) => w.outcome === outcome && w.resolution === null),
+        key: (w) => w.id,
+      },
+      permits,
+      handler: async (ctx) => {
+        await ctx.repos.resolveWire(ctx.scopeKey, resolution)
+        await ctx.repos.note(`wire ${ctx.scopeKey} ${resolution}`)
+      },
+    })
+
+  // The resolutions split by kind of authority: returning or refunding money is
+  // the escrow company's mechanics, but accepting a short wire is the
+  // organizer's concession — it is what `shortClosePermitted` reads, a deal
+  // decision rather than money handling.
+  const acceptShortWire = resolutionStep(
+    'accept-short-wire',
+    'Accept a short wire',
+    'Accept a wire that arrived under the buyer’s commitment — the organizer’s concession to close on the shortfall.',
+    'short',
+    'accepted-short',
+    {
+      isOrganizer,
+    },
+  )
+  const refundOverWire = resolutionStep(
+    'refund-over-wire',
+    'Refund an over-payment',
+    'Return the excess of a wire that arrived over the buyer’s commitment.',
+    'over',
+    'refunded-over',
+    {
+      isEscrowOfficer,
+    },
+  )
+  const returnWire = resolutionStep(
+    'return-wire',
+    'Return a wrong-account wire',
+    'Send back a wire whose originating account does not match the buyer’s registered account.',
+    'wrong-account',
+    'returned',
+    {
+      isEscrowOfficer,
+    },
+  )
+
+  // ---------------------------------------------------------------------------
+  // Closing and deed recording — outcomes as state.
+  // ---------------------------------------------------------------------------
+
+  // Defined outside a step call, so the map's own type annotation is what
+  // anchors the conditions' state parameter.
+  const closeConditions: ConditionMap<Purchase, PurchaseActor> = {
+    purchaseOpen,
     called: (s) => ({
       ok: s.fundingCall !== null,
-      reason: 'no funding call has been issued',
+      reason: 'the funding call has not been issued',
     }),
-  },
-  permits: { isIntegration },
-  input: z.object({
-    wireId: z.string(),
-    buyerId: z.string(),
-    amount: z.number(),
-    fromAccount: z.string().default(''),
-    receivedAt: z.string(),
-  }),
-  handler: async (ctx) => {
-    const expected = buyerOf(ctx.state, ctx.input.buyerId)?.committed ?? null
-    const outcome: Wire['outcome'] =
-      ctx.input.fromAccount !== registeredAccountOf(ctx.input.buyerId)
-        ? 'wrong-account'
-        : expected === null || ctx.input.amount === expected
-          ? 'matched'
-          : ctx.input.amount < expected
-            ? 'short'
-            : 'over'
-    await ctx.repos.wire({
-      id: ctx.input.wireId,
-      buyerId: ctx.input.buyerId,
-      amount: ctx.input.amount,
-      fromAccount: ctx.input.fromAccount,
-      receivedAt: ctx.input.receivedAt,
-      outcome,
-      resolution: null,
-    })
-    await ctx.repos.note(`wire ${ctx.input.wireId} recorded: ${outcome}`)
-  },
-})
-
-const resolutionStep = (
-  name: string,
-  title: string,
-  description: string,
-  outcome: Wire['outcome'],
-  resolution: NonNullable<Wire['resolution']>,
-  permits: Record<
-    string,
-    (s: Purchase, ctx: Ctx) => { ok: boolean; reason: string }
-  >,
-): StepDefinition<Purchase, PurchaseActor, PurchaseRepositories> =>
-  purchaseStep({
-    name,
-    title,
-    description,
-    scope: {
-      select: (s) =>
-        s.wires.filter((w) => w.outcome === outcome && w.resolution === null),
-      key: (w) => w.id,
+    allSigned: (s) => ({
+      ok: committedBuyers(s).every((b) => b.agreement?.signed ?? false),
+      reason: 'not every committed buyer has signed',
+    }),
+    wiresSettled: (s) => {
+      const unresolved = s.wires.filter((w) => !wireSettled(w))
+      return {
+        ok: unresolved.length === 0,
+        reason: `${unresolved.length} wires are unresolved`,
+      }
     },
-    permits,
+    /**
+     * Either every buyer's money is in, or the organizer accepted closing a
+     * little short — a genuine disjunction in the business, expressed as one
+     * rather than as two nearly-identical steps.
+     */
+    funded: anyOf({
+      fullyFunded: (s) => ({
+        ok:
+          arrivedAmount(s.wires) >=
+          (s.fundingCall?.amount ?? Number.POSITIVE_INFINITY),
+        reason: 'the wires do not cover the funding call',
+      }),
+      shortClosePermitted: (s) => ({
+        ok: s.wires.some((w) => w.resolution === 'accepted-short'),
+        reason: 'no short wire has been accepted',
+      }),
+    }),
+  }
+
+  /** The closing step. */
+  const closePurchase = purchaseStep({
+    name: 'close-purchase',
+    title: 'Close the purchase',
+    requires: closeConditions,
+    permits: { isOrganizer },
     handler: async (ctx) => {
-      await ctx.repos.resolveWire(ctx.scopeKey, resolution)
-      await ctx.repos.note(`wire ${ctx.scopeKey} ${resolution}`)
+      await ctx.repos.close('2026-08-20T17:00:00.000Z')
+      await ctx.repos.note('purchase closed')
+      ctx.end()
     },
   })
 
-// The resolutions split by kind of authority: returning or refunding money is
-// the escrow company's mechanics, but accepting a short wire is the
-// organizer's concession — it is what `shortClosePermitted` reads, a deal
-// decision rather than money handling.
-export const acceptShortWire = resolutionStep(
-  'accept-short-wire',
-  'Accept a short wire',
-  'Accept a wire that arrived under the buyer’s commitment — the organizer’s concession to close on the shortfall.',
-  'short',
-  'accepted-short',
-  {
-    isOrganizer,
-  },
-)
-export const refundOverWire = resolutionStep(
-  'refund-over-wire',
-  'Refund an over-payment',
-  'Return the excess of a wire that arrived over the buyer’s commitment.',
-  'over',
-  'refunded-over',
-  {
-    isEscrowOfficer,
-  },
-)
-export const returnWire = resolutionStep(
-  'return-wire',
-  'Return a wrong-account wire',
-  'Send back a wire whose originating account does not match the buyer’s registered account.',
-  'wrong-account',
-  'returned',
-  {
-    isEscrowOfficer,
-  },
-)
-
-// ---------------------------------------------------------------------------
-// Closing and deed recording — outcomes as state.
-// ---------------------------------------------------------------------------
-
-// Defined outside a step call, so the map's own type annotation is what
-// anchors the conditions' state parameter.
-const closeConditions: ConditionMap<Purchase, PurchaseActor> = {
-  purchaseOpen,
-  called: (s) => ({
-    ok: s.fundingCall !== null,
-    reason: 'the funding call has not been issued',
-  }),
-  allSigned: (s) => ({
-    ok: committedBuyers(s).every((b) => b.agreement?.signed ?? false),
-    reason: 'not every committed buyer has signed',
-  }),
-  wiresSettled: (s) => {
-    const unresolved = s.wires.filter((w) => !wireSettled(w))
-    return {
-      ok: unresolved.length === 0,
-      reason: `${unresolved.length} wires are unresolved`,
-    }
-  },
   /**
-   * Either every buyer's money is in, or the organizer accepted closing a
-   * little short — a genuine disjunction in the business, expressed as one
-   * rather than as two nearly-identical steps.
+   * Post-completion work as an ordinary step. A dormant case still computes
+   * affordances and still executes them, so deed recording needs no
+   * special machinery — only a guard that says the purchase must have closed
+   * first.
    */
-  funded: anyOf({
-    fullyFunded: (s) => ({
-      ok:
-        arrivedAmount(s.wires) >=
-        (s.fundingCall?.amount ?? Number.POSITIVE_INFINITY),
-      reason: 'the wires do not cover the funding call',
-    }),
-    shortClosePermitted: (s) => ({
-      ok: s.wires.some((w) => w.resolution === 'accepted-short'),
-      reason: 'no short wire has been accepted',
-    }),
-  }),
+  const recordDeed = purchaseStep({
+    name: 'record-deed',
+    title: 'Record the deed',
+    requires: {
+      closed: (s) => ({
+        ok: s.purchase.closedAt !== null,
+        reason: 'the purchase has not closed',
+      }),
+      notRecorded: (s) => ({
+        ok: s.purchase.deedRecordedAt === null,
+        reason: 'the deed has already been recorded',
+      }),
+    },
+    permits: { isOrganizer },
+    handler: async (ctx) => {
+      await ctx.repos.recordDeed('2026-09-12T00:00:00.000Z')
+      await ctx.repos.note('deed recorded')
+    },
+  })
+
+  return [
+    ...createPurchaseSetup(),
+    recordEscrowAccount,
+    inviteBuyer,
+    recordCommitment,
+    createStartVerification(),
+    recordVerificationResult,
+    escalateVerification,
+    clearEnhancedReview,
+    createSendAgreement(),
+    recordSignature,
+    issueFundingCall,
+    recordWire,
+    acceptShortWire,
+    refundOverWire,
+    returnWire,
+    recordDeed,
+    closePurchase,
+  ]
 }
-
-/** The closing step. */
-export const closePurchase = purchaseStep({
-  name: 'close-purchase',
-  title: 'Close the purchase',
-  requires: closeConditions,
-  permits: { isOrganizer },
-  handler: async (ctx) => {
-    await ctx.repos.close('2026-08-20T17:00:00.000Z')
-    await ctx.repos.note('purchase closed')
-    ctx.end()
-  },
-})
-
-/**
- * Post-completion work as an ordinary step. A dormant case still computes
- * affordances and still executes them, so deed recording needs no
- * special machinery — only a guard that says the purchase must have closed
- * first.
- */
-export const recordDeed = purchaseStep({
-  name: 'record-deed',
-  title: 'Record the deed',
-  requires: {
-    closed: (s) => ({
-      ok: s.purchase.closedAt !== null,
-      reason: 'the purchase has not closed',
-    }),
-    notRecorded: (s) => ({
-      ok: s.purchase.deedRecordedAt === null,
-      reason: 'the deed has already been recorded',
-    }),
-  },
-  permits: { isOrganizer },
-  handler: async (ctx) => {
-    await ctx.repos.recordDeed('2026-09-12T00:00:00.000Z')
-    await ctx.repos.note('deed recorded')
-  },
-})

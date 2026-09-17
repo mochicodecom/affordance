@@ -19,7 +19,12 @@ import type { StateDelta } from './delta.js'
 /** Started and completed are persisted together with the domain operation.
  * Failed entries are reserved for explicitly confirmed rollback diagnostics;
  * the ordinary engine records committed operations only. */
-export const JOURNAL_ENTRY_KINDS = ['started', 'completed', 'failed'] as const
+export const JOURNAL_ENTRY_KINDS = [
+  'started',
+  'completed',
+  'failed',
+  'observed',
+] as const
 
 export type JournalEntryType = (typeof JOURNAL_ENTRY_KINDS)[number]
 
@@ -62,6 +67,8 @@ export interface JournalEntry {
   readonly dormancy: 'ended' | 'reopened' | null
   /** The failure, on `failed` entries. */
   readonly error: JournalError | null
+  /** Handler-return observation time; present only on separately recorded diffs. */
+  readonly observedAt?: string | null
   readonly recordedAt: string
 }
 
@@ -108,7 +115,17 @@ export interface FailureEntryInput extends JournalEntryIdentity {
  * `{ entry: 'failed', guard, delta }` is unrepresentable rather than
  * quietly journaled.
  */
+/** A handler-reported diff; no atomic-commit or lease-finalization claim. */
+export interface ObservedEntryInput extends JournalEntryIdentity {
+  readonly entry: 'observed'
+  readonly asOf: string
+  readonly observedAt: string
+  readonly state: unknown
+  readonly delta: StateDelta
+}
+
 export type JournalEntryInput =
+  | ObservedEntryInput
   | StartedEntryInput
   | CompletedEntryInput
   | FailureEntryInput
@@ -165,8 +182,8 @@ export type JournalEntryColumns = Omit<
 export const projectEntry = (input: JournalEntryInput): JournalEntryColumns => {
   const started = input.entry === 'started' ? input : null
   const completed = input.entry === 'completed' ? input : null
-  const failure =
-    input.entry !== 'started' && input.entry !== 'completed' ? input : null
+  const failure = input.entry === 'failed' ? input : null
+  const observed = input.entry === 'observed' ? input : null
   return {
     caseId: input.caseId,
     executionId: input.executionId,
@@ -176,17 +193,22 @@ export const projectEntry = (input: JournalEntryInput): JournalEntryColumns => {
     scopeKey: input.scopeKey ?? null,
     actor: Object.hasOwn(input, 'actor') ? input.actor : null,
     input: Object.hasOwn(input, 'input') ? input.input : null,
-    asOf: started?.asOf ?? null,
+    asOf: started?.asOf ?? observed?.asOf ?? null,
     guard: started?.guard ?? null,
-    state: started === null ? null : started.state,
-    delta: completed?.delta ?? null,
+    state: started !== null ? started.state : (observed?.state ?? null),
+    delta: completed?.delta ?? observed?.delta ?? null,
     dormancy: completed?.dormancy ?? null,
     error: failure?.error ?? null,
+    ...(observed ? { observedAt: observed.observedAt } : {}),
   }
 }
 
 /** How an Execution ended up, folded from its entries. */
-export type ExecutionStatus = 'in-progress' | 'completed' | 'failed'
+export type ExecutionStatus =
+  | 'in-progress'
+  | 'completed'
+  | 'failed'
+  | 'observed'
 
 /**
  * One Execution as a single record: its identity, the enforcement-time evidence,
@@ -218,6 +240,7 @@ export interface ExecutionRecord {
 
 const TERMINAL: Record<string, ExecutionStatus | undefined> = {
   completed: 'completed',
+  observed: 'observed',
   failed: 'failed',
 }
 
@@ -258,7 +281,12 @@ export const foldExecutions = (
       status: terminal ?? base.status,
       asOf: started !== null ? started.asOf : base.asOf,
       guard: started !== null ? started.guard : base.guard,
-      state: started !== null ? started.state : base.state,
+      state:
+        started !== null
+          ? started.state
+          : entry.entry === 'observed'
+            ? entry.state
+            : base.state,
       delta: entry.delta ?? base.delta,
       dormancy: entry.dormancy ?? base.dormancy,
       error: entry.error ?? base.error,

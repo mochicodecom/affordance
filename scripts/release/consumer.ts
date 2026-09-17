@@ -3,13 +3,13 @@ import { randomUUID } from 'node:crypto'
 import {
   actor,
   caseType,
+  createBackgroundRuntime,
   createEngine,
-  repositories,
   StepInputValidationError,
   StepNotAvailableError,
   stepsOf,
 } from '@affordance/core'
-import { bootstrap, createPgStorage } from '@affordance/pg'
+import { bootstrap, createPgStorage, withTransaction } from '@affordance/pg'
 import { Pool } from 'pg'
 import { z } from 'zod'
 
@@ -18,17 +18,20 @@ const State = z.object({
     z.object({ id: z.string(), done: z.boolean(), amount: z.number() }),
   ),
 })
-interface Repos {
-  finish(id: string, amount: number): Promise<void>
-}
-const step = stepsOf(State, actor<{ id: string }>(), repositories<Repos>())
+const pool = new Pool({
+  connectionString:
+    process.env.TEST_DATABASE_URL ??
+    'postgres://postgres:postgres@localhost:5432/affordance_test',
+})
+const runtime = createBackgroundRuntime()
+const step = stepsOf(State, actor<{ id: string }>())
 const definition = caseType({
   name: `npm-consumer-${randomUUID()}`,
   state: State,
   steps: [
     step({
       name: 'finish',
-      scope: { select: (state) => state.items, key: (item) => item.id },
+      scope: { select: (s) => s.items, key: (i) => i.id },
       requires: { unfinished: (_s, c) => !c.scope.done },
       permits: { owns: (_s, c) => c.actor.id === c.scope.id },
       input: z.object({ amount: z.number().positive() }),
@@ -36,27 +39,37 @@ const definition = caseType({
         // @ts-expect-error input remains numeric through published declarations
         const invalid: string = ctx.input.amount
         void invalid
-        await ctx.repos.finish(ctx.scope.id, ctx.input.amount)
+        return withTransaction({ pool }, async (tx) => {
+          const changed = await tx.query(
+            'update consumer_items set done=true,amount=$3 where reference=$1 and id=$2 and not done',
+            [ctx.reference, ctx.scope.id, ctx.input.amount],
+          )
+          if (changed.rowCount !== 1) throw new Error('already done')
+          return {
+            items: (
+              await tx.query<{ id: string; done: boolean; amount: number }>(
+                'select id,done,amount from consumer_items where reference=$1 order by id',
+                [ctx.reference],
+              )
+            ).rows,
+          }
+        })
       },
     }),
+    step({ name: 'void', handler: async () => {} }),
   ],
-})
-const pool = new Pool({
-  connectionString:
-    process.env.TEST_DATABASE_URL ??
-    'postgres://postgres:postgres@localhost:5432/affordance_test',
 })
 try {
   await bootstrap(pool)
   await pool.query(
-    'create table if not exists consumer_items (reference text, id text, done boolean, amount double precision, primary key(reference,id))',
+    'create table if not exists consumer_items (reference text,id text,done boolean,amount double precision,primary key(reference,id))',
   )
   const reference = randomUUID()
   await pool.query("insert into consumer_items values ($1,'owner',false,0)", [
     reference,
   ])
   const storage = createPgStorage({ db: { pool } })
-  const bound = storage.bindCase(definition, {
+  const binding = storage.bindCase(definition, {
     load: async (q, id) => ({
       items: (
         await q.query<{ id: string; done: boolean; amount: number }>(
@@ -65,40 +78,35 @@ try {
         )
       ).rows,
     }),
-    protect: async (tx, id) => {
-      await tx.query(
-        'select id from consumer_items where reference=$1 order by id for update',
-        [id],
-      )
-    },
-    repositories: (tx, reference) => ({
-      finish: async (id, amount) => {
-        await tx.query(
-          'update consumer_items set done=true,amount=$3 where reference=$1 and id=$2',
-          [reference, id, amount],
-        )
-      },
-    }),
   })
-  const engine = createEngine({ storage, caseTypes: [bound] })
+  const engine = createEngine({
+    storage,
+    caseTypes: [binding],
+    launch: { runtime, leaseMs: 60_000 },
+  })
   const current = await engine.attachCase(definition.name, { reference })
-  const available = (await engine.affordances(current.id, { id: 'owner' }))
-    .affordances[0]
-  assert(available)
-  assert.equal(available.scopeKey, 'owner')
-  const execute = (amount: number) =>
-    engine.execute(current.id, 'finish', {
+  const run = (amount: number) =>
+    engine.run(current.id, 'finish', {
       actor: { id: 'owner' },
       scopeKey: 'owner',
       input: { amount },
     })
-  await assert.rejects(execute(-1), StepInputValidationError)
-  assert((await execute(10)).delta.length > 0)
-  await assert.rejects(execute(10), StepNotAvailableError)
+  await assert.rejects(run(-1), StepInputValidationError)
+  assert.equal((await run(10)).journal.status, 'recorded')
+  await assert.rejects(run(10), StepNotAvailableError)
   assert.deepEqual(
     (await engine.journal(current.id)).map((e) => e.entry),
-    ['started', 'completed'],
+    ['observed'],
+  )
+  const launched = await engine.launch(current.id, 'void', {
+    actor: { id: 'owner' },
+  })
+  await runtime.drain()
+  assert.equal(
+    (await engine.getExecution(launched.executionId))?.status,
+    'completed',
   )
 } finally {
+  await runtime.drain()
   await pool.end()
 }

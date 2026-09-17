@@ -98,18 +98,18 @@ condition. After escalation, `clear-enhanced-review` records either `clear` or
 ## Providers and the journal
 
 Mock providers return their own IDs and queue later events. The initiating
-handler registers each ID with `ctx.correlate`, so a provider result can find the
+application operation registers each ID in its own transaction, so a provider result can find the
 case and scope without carrying a case ID.
 
 Each queued event is delivered three times by default. Successful redeliveries
-return `duplicate`; transient dead letters can reopen as described in the
+return `duplicate`; failed operations also stay deduplicated as described in the
 [HTTP contract](../../docs/affordance-contract.md#events-and-dead-letters).
 Tests use `app.settle()` to flush due events. A custom driver can use
 `services.start(engine)` to deliver on a timer; the served demo leaves delivery
 to the console.
 
-The journal lets you inspect the step, actor, scope, enforcement-time conditions, and
-committed delta for each execution. Compare the buyer and organizer lanes with
+The journal shows the step, safe actor identity, scope, before-state and
+handler-reported diff. It is separate from durable launch status. Compare the buyer and organizer lanes with
 the recorded actor when following the commitment and closing steps.
 
 ## Read the code
@@ -151,9 +151,11 @@ framework stores case references and execution evidence. Handlers use targeted
 repository operations inside a short transaction. Mock provider dispatch runs
 after that transaction in the application wrapper; it is a demonstration, not a
 durable integration subsystem. Adopters supply their own dispatch and recovery.
-If dispatch throws, the demo logs the provider error with the committed case and
-execution IDs and returns the successful domain execution. It does not retry the
-provider automatically. Dispatch uses the scope recorded in that execution.
+If dispatch throws, its error propagates and no success diff is appended, although
+the application's database transaction may already have committed. No provider
+retry is automatic. The ordinary HTTP route uses `run`; development routes expose
+`launch`, status and explicit resolution as documented in the
+[HTTP contract](../../docs/affordance-contract.md#background-development-routes).
 
 Agreement presence is stored independently of its optional envelope ID, so a
 manual signature remains visible to guards even without a provider envelope.

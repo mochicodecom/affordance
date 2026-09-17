@@ -1,43 +1,57 @@
 # @affordance/pg
 
-Postgres implementation of Affordance's domain storage and atomic execution
-interfaces. The application owns business tables; this package stores case
-references, metadata, journal evidence, correlations, and delivery bookkeeping.
+Postgres storage for Case references, optional observed diffs, launched execution
+ownership/status, correlations and event delivery bookkeeping. The application
+owns domain tables and all business transactions.
 
 ```ts
-import { createEngine } from '@affordance/core'
+import { createEngine, createBackgroundRuntime } from '@affordance/core'
 import { bootstrap, createPgStorage } from '@affordance/pg'
 
-await bootstrap(pool)
+await bootstrap(pool) // Fresh framework schema; does not migrate or reset old data.
 const storage = createPgStorage({ db: { pool } })
-const bound = storage.bindCase(purchase, {
-  load: (q, id) => purchases(q).loadCaseState(id),
-  protect: (tx, id) => purchases(tx).lock(id),
-  repositories: (tx, id) => purchaseRepositories(tx, id),
+const binding = storage.bindCase(definition, {
+  load: (q, reference) => purchases(q).loadCaseState(reference),
 })
-const engine = createEngine({ storage, caseTypes: [bound] })
-const current = await engine.attachCase('house-purchase', { reference: purchaseId })
+const runtime = createBackgroundRuntime()
+const engine = createEngine({
+  storage, caseTypes: [binding], launch: { runtime, leaseMs: 60_000 },
+})
+const current = await engine.attachCase(definition.name, { reference: purchaseId })
 ```
 
-`bindCase` checks repository types against the definition. Its loader runs inside
-a consistent read transaction or the active execution transaction. Every domain
-writer must follow the same protection rule, including writes to related rows.
-Case executions serialize across scope keys and commit all writes and evidence
-atomically. Network work belongs outside handlers.
+Bindings supply only an authoritative loader. Reads use a short consistent
+snapshot. No framework transaction or connection remains open during a handler's
+business work. Handlers close over the application's services and may use
+`withTransaction` themselves. To create and attach in one application transaction,
+call `storage.attachCase(tx, binding, reference)`.
 
-The app owns connection lifetime. Supply `{ pool }` or a dedicated `{ client }`.
-`withTransaction` binds application writes to one connection and rejects use of
-the transaction after its callback. To create and attach together, call
-`storage.attachCase(tx, bound, reference)` inside that callback.
+Launch claims use a partial unique index on Case identity. Running and unresolved
+records retain ownership; expiration never removes that index entry. Framework
+transitions lock the selected execution row, then check `clock_timestamp()` and
+identity. Completion and resolution release only the selected execution's block.
+These transactions do not include domain writes. Ordinary runs and other writers
+are outside this coordination protocol.
 
-A lost commit acknowledgment raises `ExecutionIndeterminateError` during execution.
-`storage.reconcileExecution(caseId, executionId)` fences against an unfinished
-operation and returns `completed` or `not-committed`; database outages still throw.
-Application-owned `withTransaction` calls expose `CommitOutcomeUnknownError`.
+Journal writes use execution identity for deduplication. Core passes the remaining
+journal budget to the adapter, including connection acquisition. Queued attempts
+skip their write after the budget expires. Journal SQL uses a transaction-local
+`statement_timeout`: a blocked write rolls back and releases its connection so
+launch finalization can proceed, including with a one-connection pool or dedicated
+client. The previous connection timeout is restored after the transaction.
 
-Schema bootstrap is explicit and rejects incompatible old framework tables. It
-does not reset databases or convert old JSONB cases. `deleteCase` deletes framework
-records only; domain data remains owned by the application.
+A write committed near the deadline may still appear after core reports timeout.
+It never changes launch status. A journal failure can coexist with completed
+status; a lost status acknowledgment remains uncertain until lookup/reconciliation.
+Neither implies that business code can be replayed safely.
 
-See [storage adapters](https://github.com/mochicodecom/affordance/blob/main/docs/storage.md)
-for interfaces, atomicity, journal serialization, and domain evolution.
+The app owns pool/client lifetime. `withTransaction` exposes
+`CommitOutcomeUnknownError` when a commit acknowledgment is lost and
+`TransactionRolledBackError` when PostgreSQL acknowledges a rollback. The app must
+reconcile its own domain transaction. `registerCorrelation(q, registration)` lets
+an app explicitly include routing metadata in its own transaction.
+
+This breaking beta requires a fresh v6 framework schema. Bootstrap rejects older
+schemas and never drops data. No journal or lease data conversion is supplied.
+`deleteCase` removes framework records only. See the
+[storage contract](https://github.com/mochicodecom/affordance/blob/main/docs/storage.md).

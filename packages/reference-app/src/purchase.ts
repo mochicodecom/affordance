@@ -8,28 +8,10 @@
 
 import type { CaseTypeDefinition } from '@affordance/core'
 import { caseType } from '@affordance/core'
-import type { PurchaseRepositories } from './repository.js'
+import type { PurchaseStep } from './operation.js'
 import type { PurchaseActor } from './state.js'
 import { PurchaseState } from './state.js'
-import {
-  acceptShortWire,
-  clearEnhancedReview,
-  closePurchase,
-  createPurchaseSetup,
-  createSendAgreement,
-  createStartVerification,
-  escalateVerification,
-  inviteBuyer,
-  issueFundingCall,
-  recordCommitment,
-  recordDeed,
-  recordEscrowAccount,
-  recordSignature,
-  recordVerificationResult,
-  recordWire,
-  refundOverWire,
-  returnWire,
-} from './steps.js'
+import { createPurchaseSteps } from './steps.js'
 
 /** The name every house-purchase case records. */
 export const HOUSE_PURCHASE = 'house-purchase'
@@ -44,33 +26,13 @@ export const HOUSE_PURCHASE = 'house-purchase'
  * them: `record-deed` is guarded on the first, so being offered
  * `record-deed` *is* being told the purchase closed.
  */
-export const createPurchaseDefinition = (): CaseTypeDefinition<
-  typeof PurchaseState,
-  PurchaseActor,
-  PurchaseRepositories
-> =>
+export const createPurchaseDefinition = (
+  operations: PurchaseStep,
+): CaseTypeDefinition<typeof PurchaseState, PurchaseActor> =>
   caseType({
     name: HOUSE_PURCHASE,
     state: PurchaseState,
-    steps: [
-      ...createPurchaseSetup(),
-      recordEscrowAccount,
-      inviteBuyer,
-      recordCommitment,
-      createStartVerification(),
-      recordVerificationResult,
-      escalateVerification,
-      clearEnhancedReview,
-      createSendAgreement(),
-      recordSignature,
-      issueFundingCall,
-      recordWire,
-      acceptShortWire,
-      refundOverWire,
-      returnWire,
-      recordDeed,
-      closePurchase,
-    ],
+    steps: createPurchaseSteps(operations),
   })
 
 /** A fresh purchase's initial state — a house and nothing else. */

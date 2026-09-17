@@ -37,7 +37,6 @@ export type {
 export type {
   ActorMarker,
   BoundStep,
-  RepositoriesMarker,
   ScopedStepOptions,
   StepDefinition,
   StepMetadata,
@@ -45,7 +44,6 @@ export type {
 } from './step.js'
 export {
   actor,
-  repositories,
   StepInputValidationError,
   step,
   stepsOf,

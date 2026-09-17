@@ -12,10 +12,8 @@ import {
   type AffordanceError,
   CaseNotFoundError,
   CaseStateValidationError,
-  ExecutionIndeterminateError,
   type GuardEvaluation,
   ScopeKeyError,
-  StepExecutionError,
   StepInputValidationError,
   StepNotAvailableError,
   UnknownCaseTypeError,
@@ -43,7 +41,7 @@ const evaluation: GuardEvaluation = {
 
 /** An engine port that does nothing but throw what the test hands it from `execute` — the one route this suite drives. */
 const throwing = (error: unknown): EnginePort =>
-  stubEnginePort({ execute: () => Promise.reject(error) })
+  stubEnginePort({ run: () => Promise.reject(error) })
 
 const execute = async (
   error: unknown,
@@ -90,12 +88,6 @@ const cases: readonly [string, AffordanceError, number, string][] = [
     'bad-request',
   ],
   [
-    'StepExecutionError',
-    new StepExecutionError('c1', 'e1', 'close', null, 3, new Error('boom')),
-    500,
-    'execution-failed',
-  ],
-  [
     'CaseStateValidationError',
     new CaseStateValidationError('stored state', [{ message: 'bad' }]),
     500,
@@ -104,19 +96,6 @@ const cases: readonly [string, AffordanceError, number, string][] = [
 ]
 
 describe('framework errors on the wire', () => {
-  it('preserves uncertain commit identity without calling it a definite failure', async () => {
-    const { status, body } = await execute(
-      new ExecutionIndeterminateError('c1', 'e1'),
-    )
-    expect(status).toBe(503)
-    expect(body).toMatchObject({
-      contract: 'affordance/v1',
-      error: 'execution-indeterminate',
-      caseId: 'c1',
-      executionId: 'e1',
-    })
-    expect(body.message).toContain('reconcile before retrying')
-  })
   it.each(cases)(
     '$0 answers with its code and status',
     async (name, error, status, code) => {
@@ -130,7 +109,7 @@ describe('framework errors on the wire', () => {
         status,
         code,
       })
-      expect(response.body.contract).toBe('affordance/v1')
+      expect(response.body.contract).toBe('affordance/v2')
     },
   )
 

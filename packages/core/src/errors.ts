@@ -29,8 +29,6 @@ export const REFUSAL_CODES = [
   'not-found',
   /** The caller addressed something that cannot be addressed: unknown step, bad scope key. */
   'bad-request',
-  /** A handler ran and failed. */
-  'execution-failed',
   /** A stored Case State no longer satisfies its schema. */
   'invalid-state',
 ] as const

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import type { PurchaseApp } from '../src/app.js'
-import type { AffordancePayload, ExecutionPayload } from '../src/http/index.js'
+import type { AffordancePayload } from '../src/http/index.js'
 import { HOUSE_PURCHASE, newPurchase } from '../src/purchase.js'
 import { createMockServices } from '../src/services.js'
 import { organizer, PurchaseState } from '../src/state.js'
@@ -61,7 +61,7 @@ describe('domain creation and provider boundaries', () => {
         (a) => a.step,
       ),
     ).toContain('issue-funding-call')
-    await app.engine.execute(id, 'issue-funding-call', {
+    await app.engine.run(id, 'issue-funding-call', {
       actor: organizer,
       input: { reference: 'manual-signature' },
     })
@@ -81,7 +81,7 @@ describe('domain creation and provider boundaries', () => {
       expect(response.status).toBe(status)
       expect(response.headers.get('content-type')).toContain('application/json')
       expect(await response.json()).toMatchObject({
-        contract: 'affordance/v1',
+        contract: 'affordance/v2',
         error,
       })
     },
@@ -92,7 +92,7 @@ describe('domain creation and provider boundaries', () => {
     ['start-verification', 'startVerification'],
     ['send-agreement', 'sendEnvelope'],
   ] as const)(
-    'returns the committed %s execution when dispatch fails',
+    'preserves committed effects without a success diff when %s dispatch fails',
     async (step, method) => {
       const services = createMockServices()
       const failure = new Error('provider unavailable')
@@ -122,23 +122,11 @@ describe('domain creation and provider boundaries', () => {
         `/api/cases/${id}/steps/${step}`,
         step === 'open-escrow' ? {} : { scopeKey: 'a' },
       )
-      expect(response.status).toBe(201)
-      const { execution } = (await response.json()) as ExecutionPayload
-      expect(execution).toMatchObject({ caseId: id, step, seq: 1 })
+      expect(response.status).toBe(500)
       expect(dispatch).toHaveBeenCalledOnce()
-      expect(report).toHaveBeenCalledWith(
-        'Provider dispatch failed after execution committed',
-        expect.objectContaining({
-          caseId: id,
-          executionId: execution.executionId,
-          error: failure,
-        }),
-      )
-      expect((await app.engine.journal(id)).map((e) => e.entry)).toEqual([
-        'started',
-        'completed',
-      ])
-      expect((await app.engine.case(id)).seq).toBe(1)
+      expect(await app.engine.journal(id)).toEqual([])
+      expect((await app.engine.case(id)).state).not.toBeNull()
+      expect(report).toHaveBeenCalledWith(failure)
     },
   )
 
@@ -154,10 +142,10 @@ describe('domain creation and provider boundaries', () => {
       ],
     })
     const options = { actor: organizer, scopeKey: 'a' }
-    const pending = app.engine.execute(id, 'start-verification', options)
+    const pending = app.engine.run(id, 'start-verification', options)
     options.scopeKey = 'b'
     const result = await pending
-    const state = PurchaseState.parse(result.state)
+    const state = PurchaseState.parse((await app.engine.case(id)).state)
     expect(result.scopeKey).toBe('a')
     expect(dispatch).toHaveBeenCalledExactlyOnceWith({
       buyerId: 'a',

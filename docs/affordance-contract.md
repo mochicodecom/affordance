@@ -1,11 +1,11 @@
-# HTTP contract: `affordance/v1`
+# HTTP contract: `affordance/v2`
 
 Updated: 2026-09-06
 
 A client needs to discover what it can do on a case without encoding the
 process itself. The reference app’s HTTP interface returns affordances with input
 descriptions and links to execute or explain them. Every contract payload
-includes `"contract": "affordance/v1"`.
+includes `"contract": "affordance/v2"`.
 
 The authoritative types are in
 [the reference app payload module](../packages/reference-app/src/http/payload.ts). The
@@ -23,7 +23,7 @@ Paths are relative to the configured mount point, such as `/api`. Returned
 | `POST` | `/cases` | `201`, initial affordance payload for the created case. |
 | `GET` | `/cases/{id}/affordances` | `200`, available and visible blocked steps. |
 | `GET` | `/cases/{id}/affordances/{step}` | `200`, condition results for one step. |
-| `POST` | `/cases/{id}/steps/{step}` | `201`, committed execution, or an error. |
+| `POST` | `/cases/{id}/steps/{step}` | `201`, handler completion and journal disposition, or an error. |
 | `GET` | `/cases/{id}/journal` | `200`, journal entries oldest first. |
 | `POST` | `/events` | `200`, recorded delivery outcome. |
 | `GET` | `/dead-letters` | `200`, dead letters newest first. |
@@ -61,7 +61,7 @@ payload has this shape (IDs are illustrative):
 
 ```json
 {
-  "contract": "affordance/v1",
+  "contract": "affordance/v2",
   "case": {
     "id": "case:example",
     "type": "tutorial-purchase",
@@ -117,25 +117,18 @@ Content-Type: application/json
 { "scopeKey": "alice", "input": { "amount": 100000 } }
 ```
 
-A successful response describes the committed execution and links to fresh
+A successful response describes handler completion and journal disposition and links to fresh
 availability and that execution's journal entries:
 
 ```json
 {
-  "contract": "affordance/v1",
+  "contract": "affordance/v2",
   "execution": {
     "executionId": "execution:example",
     "caseId": "case:example",
-    "caseType": "tutorial-purchase",
     "step": "commit-funds",
     "scopeKey": "alice",
-    "attempts": 1,
-    "seq": 1,
-    "delta": [{ "op": "replace", "path": "/json/buyers/0/committedAmount", "value": 100000 }],
-    "dormancy": null,
-    "endedAt": null,
-    "startedAt": "2026-09-06T19:00:01.001Z",
-    "committedAt": "2026-09-06T19:00:01.412Z"
+    "journal": { "status": "recorded" }
   },
   "links": {
     "affordances": { "method": "GET", "href": "/api/cases/case:example/affordances" },
@@ -144,30 +137,12 @@ availability and that execution's journal entries:
 }
 ```
 
-Unscoped execution descriptors use `scopeKey: null`. Execution responses include
-the delta, not a full state snapshot or guard evaluation. Delta paths address the
-[serialized state document](storage.md#serialization-contract): `/json` contains
-values and `/meta` contains type metadata. The delta is journal evidence and is
-not a patch to apply to an HTTP case payload.
-
-```mermaid
-sequenceDiagram
-  participant Client
-  participant API as HTTP adapter
-  participant Engine
-  Client->>API: Read affordances as an authenticated actor
-  API-->>Client: Available work, input descriptions, links
-  Client->>API: Follow execute link with scope and input
-  API->>Engine: Execute with host-resolved actor
-  Engine->>Engine: Claim and recheck current guard
-  alt Execution commits
-    Engine-->>API: Committed result
-    API-->>Client: 201 with refresh links
-  else Guard changed or case busy
-    Engine-->>API: Refusal
-    API-->>Client: 409 with reason
-  end
-```
+Unscoped execution descriptors use `scopeKey: null`. The route calls `run` and
+waits for handler completion and a bounded journal attempt. Responses have no
+committed-state snapshot, sequence, delta or domain commit timestamp. Inspect the
+journal when `journal.status` is `recorded`; `skipped` means the handler returned
+void and `failed` means evidence could not be confirmed. All three represent
+successful handler completion. A thrown handler error can follow domain effects.
 
 A listing reserves nothing. Refresh after execution or a refusal; another actor
 may have changed the case. A second execute request gets a new execution ID, so
@@ -224,14 +199,13 @@ package. The adapter maps it to an HTTP status:
 | `404` | `not-found` | A requested case, case type, or route cannot be resolved. |
 | `409` | `step-not-available` | Current guard failed; includes `possible`, `permitted`, and `unmet`. |
 | `422` | `invalid-input` | Step input failed its schema; includes `issues`. |
-| `500` | `execution-failed` | The atomic operation failed, including handler errors or invalid reloaded state. |
 | `500` | `invalid-state` | Case state failed validation, including initial or stored state. |
 
 For example, an officer trying to close before Alice commits receives:
 
 ```json
 {
-  "contract": "affordance/v1",
+  "contract": "affordance/v2",
   "error": "step-not-available",
   "message": "step 'close-purchase' on case case:example is not available: allCommitted",
   "possible": false,
@@ -258,14 +232,13 @@ app's `403` for unauthorized case creation.
 
 ## Journal
 
-The response is `{ contract, entries }`, ordered by journal ordinal. Entry kinds
-are `started`, `completed`, and `failed` (the latter is reserved for explicit
-confirmed rollback diagnostics). The ordinary engine writes only `started` and
-`completed`, atomically with domain changes. Started evidence records the state,
-actor, input, and conditions used to permit execution. Completion records the
-delta and dormancy. Reads, creation, refusals, and rolled-back operations produce
-no ordinary execution journal entries. Visibility controls
-which of that evidence the response includes.
+The response is `{ contract, entries }`, ordered by ordinal. The new execution
+pipeline writes one `observed` entry when a handler returns valid State, including
+safe actor identity, before-state, diff and observation times. A void return or
+handler error writes none. Evidence is separate from domain persistence and
+launch status; late journal writes can appear after a timeout. Requests and
+credentials are not copied into the journal. Visibility controls whether the
+before-state is exposed. An observation does not prove an atomic domain commit.
 
 ## Events and dead letters
 
@@ -297,13 +270,19 @@ error code; unexpected execution failures become `execution-failed`.
 
 A valid recorded delivery returns `200` regardless of outcome. Malformed events
 can return `400`; failures outside execution, such as persistence failures,
-propagate to the host. Indeterminate execution commits return `503` with error code
-`execution-indeterminate`, `caseId`, and `executionId`. Reconcile through the
-adapter before retrying; this response does not confirm rollback. Redelivery after `execution-failed` reopens
-the event for another attempt. Successful events and other dead-letter reasons
-remain deduplicated. There is no scheduled redelivery inside the engine.
+propagate to the host. Failed operations are not automatically reopened on
+redelivery because effects may already exist. All recorded deliveries stay
+deduplicated. Application reconciliation and business idempotency remain outside
+this transport contract.
 
-`GET /dead-letters` returns `{ contract, deadLetters }`, including original
-events and failure details. It is an operator surface, subject to host access
-control. Event bookkeeping and execution commit separately; consult the
-[architecture](architecture.md) for that boundary.
+## Background development routes
+
+The reference app provides `POST /dev/cases/{id}/steps/{step}/launch` with the same
+input/scope body. A `201` acknowledges handler entry and returns `executionId`;
+a `409` means launch ownership is blocked and a `503` with execution identity means
+startup is uncertain. Read `GET /dev/executions/{id}` for durable status (404 when
+absent), then after reconciliation use `POST /dev/executions/{id}/resolve` with
+`{ "reason": "..." }`. Inspection and resolution require the organizer persona.
+These are demo header personas, not production authentication. The host must
+supply real authorization and safe operational reconciliation before deployment.
+Resolution is not cancellation; leases do not fence independent domain effects.

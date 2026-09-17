@@ -1,6 +1,10 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec'
-import type { JournalEntry, JournalFilter } from './execution/journal.js'
-import type { AtomicCasePort } from './execution/port.js'
+import type {
+  JournalEntry,
+  JournalFilter,
+  ObservedEntryInput,
+} from './execution/journal.js'
+import type { LaunchPort } from './execution/launch-port.js'
 import type {
   Correlation,
   CorrelationRegistration,
@@ -81,15 +85,23 @@ export interface DeliveryRepository {
     key: string,
     reopenable: readonly DeadLetterReason[],
   ): Promise<{ row: DeliveryRecord; fresh: boolean }>
-  /** Delivery bookkeeping is separate from the case execution's atomic commit. */
+  /** Delivery bookkeeping is separate from handler effects and evidence. */
   settle(id: string, outcome: DeliverySettlement): Promise<void>
   deadLetters(filter?: DeadLetterFilter): Promise<readonly DeadLetter[]>
 }
 
 export interface EngineStorage {
   readonly cases: CaseRepository
-  readonly execution: AtomicCasePort<unknown>
+  readonly launches?: LaunchPort
   readonly journal: {
+    /** Idempotent by executionId. Independent from domain commits and lease status.
+     * timeoutMs is the remaining budget, including acquisition. Bound or isolate
+     * storage work so a timed-out observation cannot starve status transitions.
+     * An in-flight write may finish late without changing execution status. */
+    observe(
+      entry: ObservedEntryInput,
+      options: { readonly timeoutMs: number },
+    ): Promise<void>
     read(
       caseId: string,
       filter?: JournalFilter,
@@ -100,12 +112,6 @@ export interface EngineStorage {
 }
 
 export { projectEntry } from './execution/journal.js'
-export type {
-  AtomicCasePort,
-  AtomicCaseSession,
-  CompletionEvidence,
-  CompletionMetadata,
-} from './execution/port.js'
 export type { JsonObject, JsonValue, SerializedValue } from './serialization.js'
 export {
   deserializeValue,
@@ -121,9 +127,9 @@ export interface CaseBinding {
   readonly definition: AnyCaseType
   readonly storage: EngineStorage
 }
-/** Adapter helper: type erasure happens only after its typed repositories were bound. */
-export const boundCase = <S extends StandardSchemaV1, A, R>(
-  definition: CaseTypeDefinition<S, A, R>,
+/** Adapter helper: erase definitions only after their typed read binding was checked. */
+export const boundCase = <S extends StandardSchemaV1, A>(
+  definition: CaseTypeDefinition<S, A>,
   storage: EngineStorage,
 ): CaseBinding => ({
   definition: definition as unknown as AnyCaseType,

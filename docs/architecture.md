@@ -1,146 +1,128 @@
 # Architecture
 
-Affordance computes available work from current domain facts and actor
-permissions. A case type consists of a state schema and independently guarded
-steps. No step declares its predecessor or successor: changes in domain facts
-change which guards pass.
+Affordance computes work from current domain facts and actor permissions.
+Applications own business persistence, transactions, provider calls, final
+admission and idempotency. The framework owns validation, Guard evaluation,
+invocation, optional diff observations and the launched execution protocol.
 
-## Application facts, framework evidence
+## Definitions and current state
 
-The application owns its domain tables. An adapter loads those records into a
-Case State document, which core validates before evaluating guards. The framework
-persists case identity, type, domain reference, dormancy, execution sequence,
-correlations, delivery records, and journal evidence. It does not persist a second
-authoritative current-state document.
+A Case Type declares a Standard Schema and independent Steps. A Step declares
+named `requires` and `permits` conditions, optional scope/input, and an async
+handler. `stepsOf(schema, actor<Actor>())` preserves state, actor, scope and input
+inference. Its handler returns `State | void` and receives state, actor, input,
+Case/reference/execution identity and any scope binding. It receives no framework
+transaction repositories, `onCommit`, `complete`, correlation or dormancy helpers.
 
-```mermaid
-flowchart LR
-  Domain[Application domain records] --> Binding[Persistence binding]
-  Binding --> Core[Core validation and guards]
-  Actor[Actor] --> Core
-  Core --> Available[Available and blocked steps]
-  Core --> Handler[Domain handler]
-  Handler --> Repos[Application repositories]
-  Repos --> Domain
-  Core --> Journal[Execution evidence]
-```
+A binding loads authoritative domain state. Neither a journal entry nor a returned
+snapshot is current state. Guard evaluation is an observation; final business
+admission belongs to the operation, including domain locks or accepted-command
+replay checks. The reference purchase operation reevaluates admission under its
+own parent lock. Other applications can preserve their existing command contracts.
 
-Core knows no database or ORM. `EngineStorage` and `AtomicCasePort` state the
-behavior adapters must implement. `@affordance/pg` implements it using Postgres
-connections and transactions; the application binds repositories to those
-transactions. Shared tests exercise the same engine behavior through independent
-memory and Postgres implementations.
+## Ordinary runs
 
-## Guards and scopes
+`run` validates the Case, Step/scope and input, evaluates its Guard, and captures a
+copy of the validated before-state using typed serialization. It calls the handler
+once without an encompassing domain transaction. A thrown error is preserved;
+effects may already have committed. No success diff is fabricated on an error.
 
-A guard contains `requires` conditions over case facts and `permits` conditions
-for the actor. Conditions are named, pure synchronous functions. They return a
-boolean or `{ ok, reason }`. Unscoped guards can express a named `anyOf` group.
-Scoped steps select a collection and bind one element by a stable key; guards
-and the handler receive that binding.
+An explicit `undefined` return completes with `journal: { status: 'skipped' }`.
+Otherwise the same Case schema validates the returned after-state, and the framework
+computes and attempts to store an `observed` diff. An empty diff is still evidence.
+This snapshot must describe established results, including database normalization.
+It is never persisted as domain state, cached for subsequent reads, or replaced by
+an automatic post-handler load.
 
-An affordance listing is a preview, not a reservation. Execution reloads state,
-resolves scope, validates input, and reevaluates the guard inside the adapter's
-protected operation. Unmet conditions refuse execution before any handler runs.
-The evaluation instant comes from the engine clock, or an explicit core caller;
-the HTTP execute route does not accept a client-selected instant.
+Evidence validation, serialization/diff and adapter persistence are inside a
+bounded asynchronous attempt, including storage acquisition. The default deadline
+is 1000ms, configurable with `operations.journalTimeoutMs`. A timeout produces a
+safe failed disposition; any storage write already in flight may still finish.
+Adapters deduplicate by execution identity. JavaScript cannot preempt synchronous
+CPU work, so validators and serializers must also avoid blocking the event loop.
+A validation promise that completes after the deadline does not start a new write.
+There is no diagnostic logger in the completion path that can throw or hang it.
 
-## One short atomic operation
+Malformed evidence and storage failures do not turn successful handler completion
+into business failure. They produce a safe `failed` journal disposition. There is
+a deliberate crash gap between business commit and evidence persistence. Missing
+history proves neither failure nor permission to retry. Each client call gets a
+new execution identity; business idempotency remains application-owned.
 
-```mermaid
-sequenceDiagram
-  participant Caller
-  participant Core
-  participant Adapter
-  participant Domain
-  Caller->>Core: execute(case, step, actor, input)
-  Core->>Adapter: withCase(case, executionId)
-  Adapter->>Domain: Begin atomic operation and protect domain records
-  Core->>Domain: Load current state through binding
-  Core->>Core: Validate state/input, resolve scope, check guard
-  Core->>Core: Copy enforcement evidence
-  Core->>Domain: Handler calls bound repositories
-  Core->>Domain: Reload state
-  Core->>Core: Validate and compute delta
-  Core->>Adapter: Persist evidence, metadata, correlations
-  Adapter->>Domain: Commit
-  Core-->>Caller: Execution result
-```
+## Background launch
 
-Postgres serializes executions with a case-row lock and then invokes the
-application's domain protection rule. All domain writers must follow that same
-rule, including child-record writers. A framework lock cannot protect unrelated
-SQL that ignores the domain protocol. Other adapters may use another strategy,
-but must protect the guard's read set and make domain changes and evidence atomic.
+`launch` describes what the caller awaits: handler entry, not business completion.
+The host explicitly supplies a runtime and a fixed lease duration. A claim creates
+durable identity and exclusive Case ownership before validation. Preparation
+failures release known-safe claims. Ambiguous claims/start acknowledgments retain
+ownership and expose the execution identity for inspection.
 
-Handlers return no replacement document. Core reloads state and validates it
-before committing. Invalid resulting state, handler errors, and evidence failures
-abort the operation. No automatic retries replay application code. Application
-code must await all repository operations and must not perform network work in
-an atomic handler.
+The runtime owns the task beyond request completion. The provided long-lived Node
+runtime tracks tasks, keeps Node alive and exposes `drain()` for shutdown. It is
+not suitable for a request host that freezes/kills processes. Custom runtimes must
+invoke once and own lifetime independently. Queue acceptance is not startup; the
+engine also waits for actual handler entry. Startup failure rejects launch;
+post-entry handler errors appear in status. There is no automatic replay.
 
-A connection failure during COMMIT has an uncertain outcome. The adapter reports
-that uncertainty with execution identity; it never treats a lost acknowledgment
-as proof of failure. Postgres reconciliation waits on the same case-row lock and
-then checks whether completion evidence exists.
+After return, the same optional diff protocol runs. A short framework-only
+transaction conditionally completes the execution and releases ownership if its
+identity still owns an unexpired lease. Journal success is not required. Lease
+validity uses the storage adapter's clock. Fixed leases have no heartbeat.
 
-## Journal and dormancy
+## Status, uncertainty and resolution
 
-Every committed execution writes two entries atomically: `started`, with immutable
-enforcement evidence, and `completed`, with its delta and dormancy. The result
-contains `startedAt`, `committedAt`, and the reloaded resulting state. A partial
-journal page may contain only one entry; folding does not make it an externally
-observable durable claim. Reads, attachment, refusals, and rollbacks create no
-ordinary execution entries.
+`getExecution` reads durable launch records, independently from optional journals:
 
-Historical snapshots use core's serialization format, preserving runtime types.
-Current reads always load the application records. External edits do not advance
-the framework sequence or create evidence automatically.
+| Status | Meaning |
+| --- | --- |
+| running | Handler startup recorded, ownership not expired, not finalized. |
+| completed | Successful handler completion durably finalized; journal may have failed or been skipped. |
+| unresolved | Startup uncertainty, handler error, expiration or finalization uncertainty. |
+| resolved | Explicit reconciliation recorded; no assertion about the old handler's business outcome. |
 
-Completion is expressed in domain facts. `end()` marks the case dormant and
-`reopen()` clears the marker; dormancy hides the case from default listings but
-does not prevent subsequent execution.
+Unknown IDs return null. Ordinary `run` IDs do not create status records. A claim
+awaiting startup is conservatively unresolved with reason `startup`; its startup
+transition is conditional. Process death can occur between recording startup and
+handler entry. No status reader replays work. Expiry is recognized on lookup
+without a sweeper. If the status store is unavailable after a handler completes,
+lookup may still show running until expiry; a successful but unacknowledged
+finalization can instead be reconciled as completed.
 
-## Long-running integration
+Unresolved ownership blocks new launches even after expiration. Following
+reconciliation, `resolveExecution` records actor, reason and time and clears only
+that execution's ownership atomically. It rejects running/unexpired or already
+settled records. Old callbacks cannot overwrite resolution or newer ownership.
+Authorization and the correctness of reconciliation belong to the host.
 
-The adopter owns external dispatch, ordering, idempotency, cancellation, and
-recovery. Its orchestration can invoke guarded operations before and after an API
-call. Each operation loads current facts. The library does not keep a transaction
-or case claim open across the call and supplies no outbox or worker subsystem.
+## Exact boundary of the lease
 
-Correlations associate external identifiers with a case, optional scope, and step.
-Ingestion deduplicates deliveries, finds a correlation, and executes the same
-guarded domain operation. Delivery settlement remains separate from execution;
-an uncertain commit propagates rather than being falsely dead-lettered.
+Leases coordinate participating launches and protect framework status transitions.
+They do not fence independently committed domain writes or provider effects.
+A handler may write after expiration or resolution. Resolution does not cancel it.
+Ordinary `run`, unrelated writers and external providers do not participate.
+Applications requiring stale-write fencing must explicitly integrate their own
+ownership check. There is no retry, resumption, compensation or recovery worker.
 
-## Definition and domain evolution
+## Journal projection and ingestion
 
-Case definitions are registered at startup and resolved by name. Existing cases
-use the current deployed definition; schema compatibility with domain records is
-the application's responsibility. Domain migrations use the application's normal
-database tooling. Journal replay retains past evidence even when today's step can
-no longer address the old snapshot.
+The Case schema defines comparable before/after journal shapes. Typed serialization
+supports Dates, Sets, bigint and other documented values. New observations contain
+safe identity/actor attribution, scope, observation times, before-state and diff;
+they do not store raw request bodies or authentication objects. The default actor
+projection is a string actor or its string `id`; hosts can supply `actorIdentity`.
+An observation is not proof of an atomic commit or exact causality among writers.
+Late observations retain their execution identity and never alter launch status.
 
-See [storage adapters](storage.md) for the concrete contract and examples, and
-[the tutorial](tutorial/README.md) for the reference purchase application.
+Ingestion deduplicates events, correlates them and uses `run`. It records delivery
+outcomes separately. A thrown handler may have committed, so redelivery does not
+automatically reopen failed operations. Applications retain their own idempotency
+and reconciliation procedures. Correlations and dormancy can be explicitly
+managed by the application; they are no longer staged by handler-context helpers.
 
-## Existing operations with independent transactions
+## Beta replacement
 
-`engine.executeNonAtomic` resolves and invokes the registered step using
-application-supplied operations. Core loads and validates state, resolves scope,
-validates input and evaluates the same guard machinery used by atomic execution.
-It does not lock cooperating writers. The operation owns admission, transactions,
-external calls and its existing retry behavior. Core invokes the handler once
-and propagates its error unchanged, including when earlier effects committed.
-
-After handler success, core returns the execution identity and pre-operation
-guard evaluation. It performs no second load or persistence that could turn
-success into failure. This result makes no state-delta, sequence or atomic-commit
-claim. Correlation and dormancy helpers are unsupported; adopters manage that
-metadata separately. Atomic execution and system ingestion remain unchanged.
-
-Applications may persist a completion receipt separately after success. A crash
-or write failure can leave a successful operation without that receipt. Recording
-failure must not change the known business outcome or cause a retry. Absence of a
-receipt is not evidence of failure, and separately observed state is not an
-atomic delta.
+The public execution surface is `run`, `launch`, `getExecution` and
+`resolveExecution`. `execute`, `executeNonAtomic` and the atomic storage port are
+removed. Consumers must change transaction ownership deliberately. No historical
+journal or lease data migration is provided; bootstrap requires fresh framework
+tables. Domain data stays application-owned.

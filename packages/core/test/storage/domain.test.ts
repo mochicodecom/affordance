@@ -1,26 +1,25 @@
-import { createEngine } from '../../src/index.js'
+import { createBackgroundRuntime, createEngine } from '../../src/index.js'
 import { domainContract } from './domain-contract.js'
 import { createMemoryStorage } from './memory.js'
 
 domainContract('memory', async (definition) => {
   const memory = createMemoryStorage()
-  const binding = memory.bindCase(definition, (read, write) => ({
-    setCount: async (count) => write({ ...read(), count }),
-    rename: async (id, name) =>
-      write({
-        ...read(),
-        buyers: read().buyers.map((b) => (b.id === id ? { ...b, name } : b)),
-      }),
-  }))
+  const binding = memory.bindCase(definition)
   const reference = definition.name
-  await memory.seed(reference, {
+  const initial = {
     count: 0,
     buyers: [
       { id: 'a', name: 'Alice' },
       { id: 'b', name: 'Bob' },
     ],
+  }
+  await memory.seed(reference, initial)
+  const runtime = createBackgroundRuntime()
+  const engine = createEngine({
+    storage: memory.storage,
+    caseTypes: [binding],
+    launch: { runtime, leaseMs: 60_000 },
   })
-  const engine = createEngine({ storage: memory.storage, caseTypes: [binding] })
   const { id } = await engine.attachCase(definition.name, { reference })
   return {
     engine,
@@ -28,12 +27,7 @@ domainContract('memory', async (definition) => {
     id,
     reference,
     externalCount: async (count) =>
-      memory.seed(reference, {
-        count,
-        buyers: [
-          { id: 'a', name: 'Alice' },
-          { id: 'b', name: 'Bob' },
-        ],
-      }),
+      memory.seed(reference, { ...initial, count }),
+    drain: () => runtime.drain(),
   }
 })

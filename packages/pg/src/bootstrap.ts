@@ -1,16 +1,16 @@
 import type { Queryable } from './queryable.js'
 export const FRAMEWORK_SCHEMA = 'affordance'
-export const SCHEMA_VERSION = 5
-/** Fresh schema only. Existing installations require an explicit operator reset;
- * bootstrap never drops or converts business data. */
+export const SCHEMA_VERSION = 6
+/** Fresh beta schema. Existing framework data must be reset explicitly by the operator. */
 const DDL = `
 select pg_advisory_xact_lock(hashtextextended('affordance.bootstrap', 0));
 create schema if not exists affordance;
 do $$ begin
-  if to_regclass('affordance.cases') is not null and not exists (
-    select 1 from information_schema.columns where table_schema = 'affordance'
-    and table_name = 'cases' and column_name = 'reference'
-  ) then raise exception 'Incompatible Affordance schema: domain-backed v5 requires a fresh framework schema; no automatic data conversion or reset is performed'; end if;
+  if to_regclass('affordance.cases') is not null then
+    if to_regclass('affordance.launched_executions') is null then
+      raise exception 'Incompatible Affordance schema: reset framework data explicitly before bootstrap v6';
+    end if;
+  end if;
 end $$;
 create table if not exists ${FRAMEWORK_SCHEMA}.cases (
   id text primary key,
@@ -40,8 +40,29 @@ create table if not exists ${FRAMEWORK_SCHEMA}.journal (
   delta jsonb,
   dormancy text,
   error jsonb,
+  observed_at timestamptz,
   recorded_at timestamptz not null default now()
 );
+
+create unique index if not exists journal_observed_execution_idx
+  on affordance.journal (execution_id) where entry='observed';
+create table if not exists affordance.launched_executions (
+  execution_id text primary key,
+  case_id text not null references affordance.cases(id),
+  step text not null,
+  scope_key text,
+  actor text,
+  status text not null check (status in ('running','completed','unresolved','resolved')),
+  claimed_at timestamptz not null default clock_timestamp(),
+  started_at timestamptz,
+  expires_at timestamptz not null,
+  completed_at timestamptz,
+  journal jsonb,
+  reason text,
+  resolution jsonb
+);
+create unique index if not exists launched_case_owner_idx
+  on affordance.launched_executions(case_id) where status in ('running','unresolved');
 
 create index if not exists journal_case_idx
   on ${FRAMEWORK_SCHEMA}.journal (case_id, ordinal);
@@ -88,12 +109,13 @@ create index if not exists ingested_events_dead_letter_idx
 
 create index if not exists cases_listing_idx on affordance.cases (created_at desc, id desc);
 create table if not exists affordance.schema_version (version integer primary key);
-insert into affordance.schema_version values (5) on conflict do nothing;
+insert into affordance.schema_version values (6) on conflict do nothing;
 `
 export const bootstrap = async (db: Queryable): Promise<void> => {
   await db.query(DDL)
 }
 export const CASE_TABLES = [
+  { table: 'launched_executions', caseColumn: 'case_id' },
   { table: 'journal', caseColumn: 'case_id' },
   { table: 'correlations', caseColumn: 'case_id' },
   { table: 'ingested_events', caseColumn: 'case_id' },

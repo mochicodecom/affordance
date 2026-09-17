@@ -23,7 +23,7 @@ interface TestActor {
   readonly roles: readonly string[]
 }
 
-const handler = async (): Promise<void> => {}
+const handler = async (_ctx: { state: TestState }): Promise<void> => {}
 
 describe('step() definition-time validation', () => {
   it('builds an unscoped step: guard normalized, scope null, input null', () => {
