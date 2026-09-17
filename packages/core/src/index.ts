@@ -63,6 +63,10 @@ export {
 } from './execution/index.js'
 export { JOURNAL_ENTRY_KINDS } from './execution/journal.js'
 export type {
+  ExecuteNonAtomicOptions,
+  NonAtomicExecutionResult,
+} from './execution/non-atomic.js'
+export type {
   AnyOfConditionResult,
   Condition,
   ConditionContext,

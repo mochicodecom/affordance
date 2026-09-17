@@ -69,7 +69,9 @@ A step's domain operation, which observes current case state and changes busines
 _Avoid_: task body
 
 **Execution**:
-One recorded run of a step on a case.
+One run of a step on a case. Atomic execution records domain effects and journal
+evidence together; non-atomic execution delegates transactions to the operation
+and does not require a journal record.
 _Avoid_: invocation
 
 **Journal**:

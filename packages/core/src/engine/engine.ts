@@ -20,6 +20,11 @@ import type {
   JournalFilter,
 } from '../execution/index.js'
 import { executeStep } from '../execution/index.js'
+import {
+  type ExecuteNonAtomicOptions,
+  executeNonAtomicStep,
+  type NonAtomicExecutionResult,
+} from '../execution/non-atomic.js'
 import type { Instant } from '../guards/index.js'
 import type {
   Correlation,
@@ -137,6 +142,18 @@ export interface Engine {
     stepName: string,
     options: ExecuteOptions,
   ): Promise<ExecutionResult>
+
+  /**
+   * Invoke a registered handler through application-owned operations. State/input and
+   * guards are validated before invocation, without serialization against writers.
+   * No journal, delta, sequence or metadata is written. Handler errors propagate
+   * unchanged and may follow committed effects; core never retries the operation.
+   */
+  executeNonAtomic(
+    caseId: string,
+    stepName: string,
+    options: ExecuteNonAtomicOptions,
+  ): Promise<NonAtomicExecutionResult>
 
   /**
    * Read a case's journal, oldest first. Filter by `scopeKey` for
@@ -329,6 +346,18 @@ export const createEngine = (options: EngineOptions): Engine => {
         scopeKey,
         input,
         asOf,
+      }),
+    executeNonAtomic: (
+      caseId,
+      stepName,
+      { actor, scopeKey, input, asOf, repos },
+    ) =>
+      executeNonAtomicStep(environment, caseId, stepName, {
+        actor,
+        scopeKey,
+        input,
+        asOf,
+        repos,
       }),
     journal: (caseId, filter) => storage.journal.read(caseId, filter),
     case: async (caseId) => {
