@@ -119,6 +119,7 @@ export const prepareRun = async (
         return { ...identity, journal: { status: 'skipped' } }
       let timer: ReturnType<typeof setTimeout> | undefined
       let expired = false
+      const expiresAt = performance.now() + timeoutMs
       const deadline = new Promise<JournalDisposition>((resolve) => {
         timer = setTimeout(() => {
           expired = true
@@ -149,9 +150,13 @@ export const prepareRun = async (
         } catch {
           return { status: 'failed', reason: 'evidence' }
         }
-        if (expired) return { status: 'failed', reason: 'timeout' }
+        const remainingMs = Math.ceil(expiresAt - performance.now())
+        if (expired || remainingMs <= 0)
+          return { status: 'failed', reason: 'timeout' }
         try {
-          await append.call(env.storage.journal, evidence)
+          await append.call(env.storage.journal, evidence, {
+            timeoutMs: remainingMs,
+          })
           return { status: 'recorded' }
         } catch {
           return { status: 'failed', reason: 'storage' }

@@ -147,9 +147,9 @@ describe('run evidence', () => {
     const gate = deferred()
     const original = f.memory.storage.journal.observe!
     vi.spyOn(f.memory.storage.journal, 'observe').mockImplementation(
-      async (e) => {
+      async (e, options) => {
         await gate.promise
-        await original(e)
+        await original(e, options)
       },
     )
     try {
@@ -363,6 +363,23 @@ describe('launch lifecycle', () => {
     expect(await f.engine.getExecution(result.executionId)).toMatchObject({
       status: 'completed',
     })
+  })
+  it('preserves the finalization reason when its first diagnostic write also fails', async () => {
+    const handler = vi.fn(async () => {})
+    const f = await fixture(handler)
+    vi.spyOn(f.memory.storage.launches!, 'complete').mockRejectedValue(
+      new Error('lost completion acknowledgment'),
+    )
+    vi.spyOn(f.memory.storage.launches!, 'fail').mockRejectedValueOnce(
+      new Error('storage still unavailable'),
+    )
+    const result = await f.engine.launch(f.id, 'work', f.args)
+    await f.runtime.drain()
+    expect(await f.engine.getExecution(result.executionId)).toMatchObject({
+      status: 'unresolved',
+      reason: 'finalization',
+    })
+    expect(handler).toHaveBeenCalledTimes(1)
   })
   it('releases a known-safe failed handoff and prevents a delayed callback from starting', async () => {
     let delayed!: () => Promise<void>

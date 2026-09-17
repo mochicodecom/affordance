@@ -33,12 +33,17 @@ identity. Completion and resolution release only the selected execution's block.
 These transactions do not include domain writes. Ordinary runs and other writers
 are outside this coordination protocol.
 
-Journal writes use execution identity for deduplication. Core bounds how long it
-waits, including connection acquisition, but does not cancel Postgres work: a
-late observation may still appear. It never changes launch status. A journal
-failure can coexist with completed status; a lost status acknowledgment remains
-uncertain until lookup/reconciliation. Neither implies that business code can be
-replayed safely.
+Journal writes use execution identity for deduplication. Core passes the remaining
+journal budget to the adapter, including connection acquisition. Queued attempts
+skip their write after the budget expires. Journal SQL uses a transaction-local
+`statement_timeout`: a blocked write rolls back and releases its connection so
+launch finalization can proceed, including with a one-connection pool or dedicated
+client. The previous connection timeout is restored after the transaction.
+
+A write committed near the deadline may still appear after core reports timeout.
+It never changes launch status. A journal failure can coexist with completed
+status; a lost status acknowledgment remains uncertain until lookup/reconciliation.
+Neither implies that business code can be replayed safely.
 
 The app owns pool/client lifetime. `withTransaction` exposes
 `CommitOutcomeUnknownError` when a commit acknowledgment is lost and

@@ -5,6 +5,7 @@ import type {
   JournalEntryType,
   JournalError,
   JournalFilter,
+  ObservedEntryInput,
   StateDelta,
 } from '@affordance/core'
 import {
@@ -14,12 +15,47 @@ import {
   serializeValue,
 } from '@affordance/core/storage'
 import { FRAMEWORK_SCHEMA } from './bootstrap.js'
-import type { Queryable } from './queryable.js'
+import type { DatabaseAccess, Queryable } from './queryable.js'
 import { sqlWhere } from './sql.js'
+import { withTransaction } from './transaction.js'
 
 const JOURNAL = `${FRAMEWORK_SCHEMA}.journal`
 const JOURNAL_COLUMNS =
   'ordinal, id, case_id, execution_id, entry, attempt, step, scope_key, actor, input, as_of, guard, state, delta, dormancy, error, recorded_at, observed_at'
+
+/** Bound journal SQL so it releases shared connection capacity after timeout. */
+export const observeEntry = async (
+  db: DatabaseAccess,
+  entry: ObservedEntryInput,
+  timeoutMs: number,
+): Promise<void> => {
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > 2_147_483_647
+  )
+    throw new TypeError('journal timeoutMs must be a positive 32-bit integer')
+  const expiresAt = performance.now() + timeoutMs
+  await withTransaction(db, async (tx) => {
+    const remaining = () => {
+      const ms = Math.ceil(expiresAt - performance.now())
+      if (ms <= 0) throw new Error('journal deadline expired')
+      return ms
+    }
+    const bounded: Queryable = {
+      async query(text, values) {
+        // SET LOCAL restores the connection's original timeout on commit/rollback.
+        // Recompute for each statement, including a duplicate-observation lookup.
+        await tx.query("select set_config('statement_timeout', $1, true)", [
+          String(remaining()),
+        ])
+        remaining()
+        return tx.query(text, values)
+      },
+    }
+    await appendEntry(bounded, entry)
+  })
+}
 
 type JournalRow = {
   ordinal: string | number

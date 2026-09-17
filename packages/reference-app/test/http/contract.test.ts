@@ -68,6 +68,23 @@ const execution: RunResult = {
 }
 
 describe('the execution payload', () => {
+  it.each([
+    { status: 'skipped' },
+    { status: 'recorded' },
+    { status: 'failed', reason: 'timeout' },
+  ] as const)(
+    'projects only the journal disposition fields: $status',
+    (journal) => {
+      const result = {
+        ...execution,
+        journal: { ...journal, internalDetail: 'private storage diagnostic' },
+      }
+      expect(
+        toExecutionPayload(result, context('permitted')).execution.journal,
+      ).toEqual(journal)
+    },
+  )
+
   it('carries the descriptor, never the record — no state, no guard', () => {
     const payload = toExecutionPayload(execution, context('permitted'))
     expect(payload.execution).toEqual({

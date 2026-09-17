@@ -23,7 +23,7 @@ transactions, external calls, idempotency and final business admission.
 
 ## Optional journal observations
 
-`journal.observe(entry)` is required for `run` and `launch`, even when a particular
+`journal.observe(entry, { timeoutMs })` is required for `run` and `launch`, even when a particular
 handler returns void. Capability absence is detected before invocation. A handler
 returning State causes one `observed` entry; void causes none. Observations use the
 same validated Case schema on each side. They contain safe actor identity, Case,
@@ -32,11 +32,19 @@ No raw request input is copied. The Case schema must exclude credentials and
 unrelated private fields.
 
 Core bounds the entire asynchronous evidence attempt including schema validation,
-connection acquisition and persistence. Storage can finish late after timeout;
-this adapter does not cancel SQL. A partial unique index makes `observed` entries
-idempotent by execution ID. A late observation never finalizes a lease or rewrites
-status. Successful empty diffs still produce an entry. Missing observations never
-trigger replay. Journals are not a state source or atomic-commit proof.
+connection acquisition and persistence. It passes the remaining budget to storage.
+Adapters must bound or isolate journal work so it cannot retain resources needed
+for status finalization indefinitely. PostgreSQL counts acquisition against that
+budget and uses a transaction-local `statement_timeout` for journal SQL. An
+expired queued attempt skips the write; a blocked statement times out and rolls
+back, returning its connection for status transitions. The connection's previous
+timeout is restored when the transaction ends.
+
+A write that commits near the deadline can still be observed after core reports
+timeout. A partial unique index makes `observed` entries idempotent by execution
+ID. A late observation never finalizes a lease or rewrites status. Successful
+empty diffs still produce an entry. Missing observations never trigger replay.
+Journals are not a state source or atomic-commit proof.
 
 ## Serialization contract
 

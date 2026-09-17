@@ -210,8 +210,8 @@ export const domainContract = (
         delta: entry.delta!,
       }
       await Promise.all([
-        f.storage.journal.observe!(evidence),
-        f.storage.journal.observe!(evidence),
+        f.storage.journal.observe!(evidence, { timeoutMs: 1000 }),
+        f.storage.journal.observe!(evidence, { timeoutMs: 1000 }),
       ])
       expect(
         await f.engine.journal(f.id, { executionId: result.executionId }),

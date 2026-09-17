@@ -95,8 +95,13 @@ export interface EngineStorage {
   readonly launches?: LaunchPort
   readonly journal: {
     /** Idempotent by executionId. Independent from domain commits and lease status.
-     * Core bounds its wait including acquisition; an in-flight write may finish late. */
-    observe(entry: ObservedEntryInput): Promise<void>
+     * timeoutMs is the remaining budget, including acquisition. Bound or isolate
+     * storage work so a timed-out observation cannot starve status transitions.
+     * An in-flight write may finish late without changing execution status. */
+    observe(
+      entry: ObservedEntryInput,
+      options: { readonly timeoutMs: number },
+    ): Promise<void>
     read(
       caseId: string,
       filter?: JournalFilter,

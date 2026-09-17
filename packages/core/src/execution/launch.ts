@@ -2,7 +2,11 @@ import { deserializeValue, serializeValue } from '../serialization.js'
 import { mintId } from '../store/index.js'
 import type { BackgroundRuntime } from './background.js'
 import type { ExecutionEnvironment, RunOptions } from './environment.js'
-import { LaunchBlockedError, LaunchUnresolvedError } from './launch-port.js'
+import {
+  LaunchBlockedError,
+  type LaunchPort,
+  LaunchUnresolvedError,
+} from './launch-port.js'
 import {
   duration,
   prepareRun,
@@ -83,7 +87,7 @@ export const launchStep = async (
       launch.runtime.start(async () => {
         if (cancelled || called) return
         called = true
-        let handlerEntered = false
+        let failureReason: Parameters<LaunchPort['fail']>[1] = 'startup'
         try {
           startAttempted = true
           if (!(await port.start(executionId)))
@@ -91,7 +95,7 @@ export const launchStep = async (
           if (cancelled) throw new LaunchUnresolvedError(executionId)
           let result: ReturnType<typeof prepared.invoke>
           try {
-            handlerEntered = true
+            failureReason = 'handler-error'
             result = prepared.invoke()
           } catch (cause) {
             // Even a synchronous throw is a handler entry, not a safe startup refusal.
@@ -99,7 +103,9 @@ export const launchStep = async (
             throw cause
           }
           entered()
-          const completed = await prepared.observe(await result)
+          const returned = await result
+          failureReason = 'finalization'
+          const completed = await prepared.observe(returned)
           try {
             if (!(await port.complete(executionId, completed.journal))) {
               await port.fail(executionId, 'finalization')
@@ -111,10 +117,7 @@ export const launchStep = async (
           rejectEntry(new LaunchUnresolvedError(executionId))
           // Safe diagnostic codes only. No raw handler errors or request data in status.
           try {
-            await port.fail(
-              executionId,
-              handlerEntered ? 'handler-error' : 'startup',
-            )
+            await port.fail(executionId, failureReason)
           } catch {
             /* Expiry still exposes unresolved ownership. */
           }

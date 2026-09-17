@@ -119,16 +119,24 @@ export type StateDeltaPayload = readonly PatchOpPayload[]
 /** `end()` / `reopen()` called by the handler. */
 export type DormancyPayload = 'ended' | 'reopened'
 
-/** One committed Execution, as the wire carries it — never the Case State itself. */
+export type JournalDispositionPayload =
+  | { readonly status: 'skipped' }
+  | { readonly status: 'recorded' }
+  | {
+      readonly status: 'failed'
+      readonly reason: 'evidence' | 'storage' | 'timeout'
+    }
+
+/** One finished run, including optional journal disposition. */
 export interface ExecutionDescriptor {
   readonly executionId: string
   readonly caseId: string
   readonly step: string
   readonly scopeKey: string | null
-  readonly journal: import('@affordance/core').JournalDisposition
+  readonly journal: JournalDispositionPayload
 }
 
-/** The payload of a committed Execution — the response of `POST /cases/{id}/steps/{step}`. */
+/** The response of `POST /cases/{id}/steps/{step}`. */
 export interface ExecutionPayload {
   readonly contract: typeof CONTRACT
   readonly execution: ExecutionDescriptor

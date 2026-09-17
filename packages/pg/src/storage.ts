@@ -12,7 +12,7 @@ import {
   registerCorrelation,
 } from './correlation.js'
 import { claimDelivery, readDeadLetters, settle } from './delivery.js'
-import { appendEntry, readJournal } from './journal.js'
+import { observeEntry, readJournal } from './journal.js'
 import { createLaunchPort } from './launches.js'
 import { listCases } from './listing.js'
 import type { DatabaseAccess, Queryable, Transaction } from './queryable.js'
@@ -105,9 +105,7 @@ export const createPgStorage = ({ db }: PgStorageOptions): PgStorage => {
     launches: createLaunchPort(db),
     journal: {
       read: (id, filter) => readJournal(q, id, filter),
-      observe: async (entry) => {
-        await appendEntry(q, entry)
-      },
+      observe: (entry, { timeoutMs }) => observeEntry(db, entry, timeoutMs),
     },
     correlations: {
       register: (r) => registerCorrelation(q, r),

@@ -289,18 +289,18 @@ const toEventPayload = (event: ExternalEvent): ExternalEventPayload => ({
 })
 
 /**
- * One committed Execution as the wire carries it. Deliberately not the
- * {@link RunResult}: that record carries the committed Case State and
- * the full enforcement-time guard evaluation, and neither belongs on the wire —
- * state is deliberately absent from this contract everywhere, and the guard
- * record is the journal's to serve, filtered for the audience there.
+ * Project the run and its journal disposition into the contract's own fields.
+ * Additional core fields must not silently become part of the HTTP response.
  */
 const toExecutionDescriptor = (result: RunResult): ExecutionDescriptor => ({
   executionId: result.executionId,
   caseId: result.caseId,
   step: result.step,
   scopeKey: result.scopeKey ?? null,
-  journal: result.journal,
+  journal:
+    result.journal.status === 'failed'
+      ? { status: 'failed', reason: result.journal.reason }
+      : { status: result.journal.status },
 })
 
 export const toExecutionPayload = (
