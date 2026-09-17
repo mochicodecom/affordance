@@ -123,3 +123,24 @@ no longer address the old snapshot.
 
 See [storage adapters](storage.md) for the concrete contract and examples, and
 [the tutorial](tutorial/README.md) for the reference purchase application.
+
+## Existing operations with independent transactions
+
+`engine.executeNonAtomic` resolves and invokes the registered step using
+application-supplied operations. Core loads and validates state, resolves scope,
+validates input and evaluates the same guard machinery used by atomic execution.
+It does not lock cooperating writers. The operation owns admission, transactions,
+external calls and its existing retry behavior. Core invokes the handler once
+and propagates its error unchanged, including when earlier effects committed.
+
+After handler success, core returns the invocation identity and pre-operation
+guard evaluation. It performs no second load or persistence that could turn
+success into failure. This result makes no state-delta, sequence or atomic-commit
+claim. Correlation and dormancy helpers are unsupported; adopters manage that
+metadata separately. Atomic execution and system ingestion remain unchanged.
+
+Applications may persist a completion receipt separately after success. A crash
+or write failure can leave a successful operation without that receipt. Recording
+failure must not change the known business outcome or cause a retry. Absence of a
+receipt is not evidence of failure, and separately observed state is not an
+atomic delta.
