@@ -19,7 +19,7 @@ import { sqlWhere } from './sql.js'
 
 const JOURNAL = `${FRAMEWORK_SCHEMA}.journal`
 const JOURNAL_COLUMNS =
-  'ordinal, id, case_id, execution_id, entry, attempt, step, scope_key, actor, input, as_of, guard, state, delta, dormancy, error, recorded_at'
+  'ordinal, id, case_id, execution_id, entry, attempt, step, scope_key, actor, input, as_of, guard, state, delta, dormancy, error, recorded_at, observed_at'
 
 type JournalRow = {
   ordinal: string | number
@@ -38,6 +38,7 @@ type JournalRow = {
   delta: StateDelta | null
   dormancy: string | null
   error: JournalError | null
+  observed_at: Date | null
   recorded_at: Date
 }
 
@@ -57,13 +58,14 @@ const toEntry = (row: JournalRow): JournalEntry => {
     asOf: row.as_of === null ? null : row.as_of.toISOString(),
     guard: row.guard,
     state:
-      row.entry === 'started'
+      row.entry === 'started' || row.entry === 'observed'
         ? deserializeValue(row.state, `${context} state`)
         : null,
     delta: row.delta,
     dormancy: row.dormancy as 'ended' | 'reopened' | null,
     error: row.error,
     recordedAt: row.recorded_at.toISOString(),
+    ...(row.observed_at ? { observedAt: row.observed_at.toISOString() } : {}),
   }
 }
 
@@ -76,8 +78,9 @@ export const appendEntry = async (
   const context = `journal '${entry.entry}' for case '${entry.caseId}', step '${entry.step}', execution '${entry.executionId}'`
   const { rows } = await db.query<JournalRow>(
     `insert into ${JOURNAL}
-       (id, case_id, execution_id, entry, attempt, step, scope_key, actor, input, as_of, guard, state, delta, dormancy, error)
-     values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::timestamptz, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb)
+       (id, case_id, execution_id, entry, attempt, step, scope_key, actor, input, as_of, guard, state, delta, dormancy, error, observed_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::timestamptz, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::timestamptz)
+     on conflict (execution_id) where entry='observed' do nothing
      returning ${JOURNAL_COLUMNS}`,
     [
       mintId('journal'),
@@ -91,15 +94,23 @@ export const appendEntry = async (
       JSON.stringify(serializeValue(entry.input, `${context} input`)),
       entry.asOf,
       JSON.stringify(entry.guard),
-      entry.entry === 'started'
+      entry.entry === 'started' || entry.entry === 'observed'
         ? JSON.stringify(serializeValue(entry.state, `${context} state`))
         : null,
       JSON.stringify(entry.delta),
       entry.dormancy,
       JSON.stringify(entry.error),
+      entry.observedAt ?? null,
     ],
   )
   const row = rows[0]
+  if (!row && input.entry === 'observed') {
+    const existing = await readJournal(db, input.caseId, {
+      executionId: input.executionId,
+      entry: 'observed',
+    })
+    if (existing[0]) return existing[0]
+  }
   if (!row) throw new Error(`insert into ${JOURNAL} returned no row`)
   return toEntry(row)
 }

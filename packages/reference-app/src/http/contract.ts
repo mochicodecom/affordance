@@ -8,7 +8,7 @@
  * is produced here, by translating the framework's records *into* the
  * contract's own leaf types. Core records are inputs to that translation and
  * never appear in an exported type — a core rename that would change the
- * wire is a compile error here, not a silent `affordance/v1` break.
+ * wire is a compile error here, not a silent `affordance/v2` break.
  *
  * It is deliberately pure: given a record, a link builder and a visibility
  * policy, it produces the payload. No I/O, no engine, nothing to mock —
@@ -27,11 +27,11 @@ import type {
   BlockedStep,
   CaseAffordances,
   DeadLetter,
-  ExecutionResult,
   ExternalEvent,
   IngestionResult,
   JournalEntry,
   PatchOp,
+  RunResult,
   StateDelta,
   StepMetadata,
 } from '@affordance/core'
@@ -290,30 +290,21 @@ const toEventPayload = (event: ExternalEvent): ExternalEventPayload => ({
 
 /**
  * One committed Execution as the wire carries it. Deliberately not the
- * {@link ExecutionResult}: that record carries the committed Case State and
+ * {@link RunResult}: that record carries the committed Case State and
  * the full enforcement-time guard evaluation, and neither belongs on the wire —
  * state is deliberately absent from this contract everywhere, and the guard
  * record is the journal's to serve, filtered for the audience there.
  */
-const toExecutionDescriptor = (
-  result: ExecutionResult,
-): ExecutionDescriptor => ({
+const toExecutionDescriptor = (result: RunResult): ExecutionDescriptor => ({
   executionId: result.executionId,
   caseId: result.caseId,
-  caseType: result.caseTypeName,
   step: result.step,
   scopeKey: result.scopeKey ?? null,
-  attempts: result.attempts,
-  seq: result.seq,
-  delta: toDeltaPayload(result.delta),
-  dormancy: result.dormancy,
-  endedAt: result.endedAt,
-  startedAt: result.startedAt,
-  committedAt: result.committedAt,
+  journal: result.journal,
 })
 
 export const toExecutionPayload = (
-  result: ExecutionResult,
+  result: RunResult,
   context: ContractContext,
 ): ExecutionPayload => {
   const link = links(context.basePath)
@@ -384,6 +375,7 @@ const toJournalEntryPayload = (
     dormancy: visible.dormancy,
     error: visible.error,
     recordedAt: visible.recordedAt,
+    observedAt: visible.observedAt ?? null,
   }
 }
 

@@ -150,7 +150,7 @@ describe('a group house purchase, from nothing to closed', () => {
     const closable = await client.affordances(caseId, organizer)
     expect(offered(closable)).toContain('close-purchase')
     const closed = await client.take(caseId, organizer, 'close-purchase')
-    expect(closed.execution.dormancy).toBe('ended')
+    expect(closed.execution.journal).toEqual({ status: 'recorded' })
 
     const afterClose = await client.affordances(caseId, organizer)
     expect(afterClose.case.endedAt).not.toBeNull()
@@ -192,7 +192,7 @@ describe('a group house purchase, from nothing to closed', () => {
     ])
     const opened = await client.journal(caseId, {
       step: 'record-escrow-account',
-      entry: 'completed',
+      entry: 'observed',
     })
     expect(opened).toHaveLength(1)
   })

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { createEngine, repositories } from '@affordance/core'
+import { createEngine } from '@affordance/core'
 import { createMemoryStorage } from '../../../core/test/storage/memory.js'
 /**
  * A house-purchase-shaped case type with two audiences: the organizer, who
@@ -48,13 +48,7 @@ export const buyerB: Actor = { id: 'buyer_b', roles: ['buyer'] }
 const isOrganizer = (_s: Purchase, ctx: ConditionContext<Actor>): boolean =>
   ctx.actor?.roles.includes('organizer') ?? false
 
-const purchaseStep = stepsOf(
-  PurchaseState,
-  actor<Actor>(),
-  repositories<{
-    change: (fn: (state: Purchase) => Purchase) => Promise<void>
-  }>(),
-)
+const purchaseStep = stepsOf(PurchaseState, actor<Actor>())
 
 /** Scoped + buyer-permitted: each buyer may sign their own agreement and no one else's. */
 export const signAgreement = purchaseStep({
@@ -71,13 +65,13 @@ export const signAgreement = purchaseStep({
   },
   input: z.object({ signedAt: z.string() }),
   handler: async (ctx) =>
-    ctx.repos.change((s) => ({
+    ((s: Purchase) => ({
       ...s,
       buyers: s.buyers.map((b) =>
         b.id === ctx.scopeKey ? { ...b, signed: true } : b,
       ),
       notes: [...s.notes, `${ctx.scopeKey} signed`],
-    })),
+    }))(ctx.state),
 })
 
 /** Purchase-level, organizer only. */
@@ -86,7 +80,7 @@ export const confirmSplit = purchaseStep({
   requires: { notConfirmed: (s) => !s.split.confirmed },
   permits: { isOrganizer },
   handler: async (ctx) =>
-    ctx.repos.change((s) => ({ ...s, split: { confirmed: true } })),
+    ((s: Purchase) => ({ ...s, split: { confirmed: true } }))(ctx.state),
 })
 
 /** Purchase-level, blocked on a `requires` — the "show me why not" subject. */
@@ -102,11 +96,10 @@ export const closePurchase = purchaseStep({
   },
   permits: { isOrganizer },
   handler: async (ctx) => {
-    ctx.end()
-    await ctx.repos.change((s) => ({
+    return ((s: Purchase) => ({
       ...s,
       purchase: { ...s.purchase, closedAt: '2026-09-01T00:00:00.000Z' },
-    }))
+    }))(ctx.state)
   },
 })
 
@@ -116,12 +109,12 @@ export const recordCommitment = purchaseStep({
   scope: { select: (s) => s.buyers, key: (b) => b.id },
   input: z.object({ amount: z.number() }),
   handler: async (ctx) =>
-    ctx.repos.change((s) => ({
+    ((s: Purchase) => ({
       ...s,
       buyers: s.buyers.map((b) =>
         b.id === ctx.scopeKey ? { ...b, committed: ctx.input.amount } : b,
       ),
-    })),
+    }))(ctx.state),
 })
 
 export const purchase = caseType({
@@ -152,7 +145,7 @@ export const stubEnginePort = (
       throw new Error('not under test')
     },
     explain: notUnderTest,
-    execute: notUnderTest,
+    run: notUnderTest,
     journal: notUnderTest,
     ingest: notUnderTest,
     deadLetters: notUnderTest,
@@ -164,9 +157,18 @@ export const stubEnginePort = (
 
 export const httpEngine = () => {
   const memory = createMemoryStorage()
-  const binding = memory.bindCase(purchase, (read, write) => ({
-    change: async (fn) => write(fn(read())),
-  }))
+  const bound = caseType({
+    ...purchase,
+    steps: purchase.steps.map((step) => ({
+      ...step,
+      handler: async (ctx: Parameters<typeof step.handler>[0]) => {
+        const result = await step.handler(ctx)
+        if (result !== undefined) await memory.seed(ctx.reference, result)
+        return result
+      },
+    })),
+  })
+  const binding = memory.bindCase(bound)
   const engine = createEngine({ storage: memory.storage, caseTypes: [binding] })
   return {
     ...engine,

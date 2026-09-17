@@ -1,26 +1,11 @@
 /** Atomic domain execution and immutable journal evidence. */
 export type { PatchOp, StateDelta } from './delta.js'
 export { diffState, jsonEqual } from './delta.js'
+export type { ExecutionEnvironment, RunOptions } from './environment.js'
 export {
-  ExecutionIndeterminateError,
-  StepExecutionError,
   StepNotAvailableError,
   stepLabel,
 } from './errors.js'
-export type {
-  ExecuteOptions,
-  ExecutionEnvironment,
-  ExecutionResult,
-  SystemCommit,
-  SystemRunOptions,
-  SystemRunOutcome,
-  SystemSettled,
-} from './execute.js'
-export {
-  executeStep,
-  runAsSystem,
-  settleSystemRun,
-} from './execute.js'
 export type {
   CompletedEntryInput,
   ExecutionRecord,
@@ -40,11 +25,5 @@ export {
   isStartedEntry,
   projectEntry,
 } from './journal.js'
-export type {
-  AtomicCasePort,
-  AtomicCaseSession,
-  CompletionEvidence,
-  CompletionMetadata,
-} from './port.js'
 export type { GuardReplay } from './replay.js'
 export { replayGuard } from './replay.js'

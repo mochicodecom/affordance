@@ -17,11 +17,7 @@ import type { StepDefinition } from './step.js'
 import { isStandardSchema, looksLikeStepDefinition } from './step.js'
 
 /** Options for {@link caseType}. */
-export interface CaseTypeOptions<
-  S extends StandardSchemaV1,
-  TActor = unknown,
-  TRepos = unknown,
-> {
+export interface CaseTypeOptions<S extends StandardSchemaV1, TActor = unknown> {
   /**
    * The case type's name — what the persisted case records. Only the name is
    * stored: the code definition floats, meaning existing cases always run
@@ -33,8 +29,7 @@ export interface CaseTypeOptions<
   /** The case type's steps, in declaration order (which affordance listings preserve). */
   readonly steps: readonly StepDefinition<
     StandardSchemaV1.InferOutput<S>,
-    TActor,
-    TRepos
+    TActor
   >[]
 }
 
@@ -42,21 +37,17 @@ export interface CaseTypeOptions<
 export interface CaseTypeDefinition<
   S extends StandardSchemaV1 = StandardSchemaV1,
   TActor = unknown,
-  TRepos = unknown,
 > {
   readonly name: string
   readonly state: S
   readonly steps: readonly StepDefinition<
     StandardSchemaV1.InferOutput<S>,
-    TActor,
-    TRepos
+    TActor
   >[]
   /** Look up a step by name; `undefined` when the case type declares no such step. */
   readonly getStep: (
     name: string,
-  ) =>
-    | StepDefinition<StandardSchemaV1.InferOutput<S>, TActor, TRepos>
-    | undefined
+  ) => StepDefinition<StandardSchemaV1.InferOutput<S>, TActor> | undefined
 }
 
 /**
@@ -72,7 +63,7 @@ export interface CaseTypeDefinition<
 // or narrower schema type is assignable (S feeds both the state property and
 // condition/handler parameters), so any narrower existential would reject
 // every concrete schema.
-export type AnyCaseType<TRepos = unknown> = CaseTypeDefinition<any, any, TRepos>
+export type AnyCaseType = CaseTypeDefinition<any, any>
 
 /**
  * Define a case type. Validates loudly at construction time:
@@ -82,13 +73,9 @@ export type AnyCaseType<TRepos = unknown> = CaseTypeDefinition<any, any, TRepos>
  * - step names must be unique within the case type — a duplicate would make
  *   affordance identity (step × scope key) ambiguous
  */
-export const caseType = <
-  S extends StandardSchemaV1,
-  TActor = unknown,
-  TRepos = unknown,
->(
-  options: CaseTypeOptions<S, TActor, TRepos>,
-): CaseTypeDefinition<S, TActor, TRepos> => {
+export const caseType = <S extends StandardSchemaV1, TActor = unknown>(
+  options: CaseTypeOptions<S, TActor>,
+): CaseTypeDefinition<S, TActor> => {
   const { name, state, steps } = options
   if (typeof name !== 'string' || name.trim() === '') {
     throw new TypeError('caseType: name must be a non-empty string')
@@ -106,7 +93,7 @@ export const caseType = <
 
   const byName = new Map<
     string,
-    StepDefinition<StandardSchemaV1.InferOutput<S>, TActor, TRepos>
+    StepDefinition<StandardSchemaV1.InferOutput<S>, TActor>
   >()
   for (const definition of steps) {
     if (!looksLikeStepDefinition(definition)) {

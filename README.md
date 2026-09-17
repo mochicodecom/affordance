@@ -1,6 +1,6 @@
 # Affordance
 
-Updated: 2026-09-13
+Updated: 2026-09-17
 
 **Compute what a case can do now, for a particular actor.**
 
@@ -43,7 +43,7 @@ const { affordances, blocked } = await engine.affordances(caseId, actor)
 // affordances: [{ step: 'commit-funds', scopeKey: 'buyer-7' }]
 // blocked: steps this actor cannot take, with named unmet conditions
 
-await engine.execute(caseId, 'commit-funds', {
+await engine.run(caseId, 'commit-funds', {
   actor,
   scopeKey: 'buyer-7',
   input: { amount: 250_000 },
@@ -54,14 +54,17 @@ const entries = await engine.journal(caseId, { scopeKey: 'buyer-7' })
 
 - **Scope and permissions:** one step can produce separate affordances for each
   buyer, document, or payment. `requires` checks the case; `permits` checks the actor.
-- **Atomic domain execution:** load current state, check guards, call application
-  repositories, validate the resulting state, and commit evidence together.
-- **Recorded decisions:** immutable `started` evidence and a `completed` delta.
-  Current reads always use domain records.
-- **Application-owned orchestration:** external calls, retries, cancellation, and
-  recovery use the adopter's existing approach outside atomic handlers.
+- **Handler-owned persistence:** operations own transactions, final admission and external calls.
+- **Optional evidence:** return State for an observed diff, or void to skip it.
+  Journal failures remain separate from business completion.
+- **Background work:** `launch` acknowledges handler entry and tracks durable status
+  under a fixed lease. Expiration requires explicit reconciliation/resolution.
 - **Current definitions:** available work follows today's definitions and domain
   facts. Applications own their schema and data migrations.
+
+This beta replaces the old execution surface with `run` and `launch`. Breaking
+API changes and a fresh framework schema are intentional; journal/lease data is
+not migrated. See [adoption notes](docs/migration.md).
 
 ## Install
 
@@ -111,8 +114,8 @@ isolated TypeScript consumer that exercises the engine with Postgres. See the
 
 | Package | Responsibility |
 | --- | --- |
-| `@affordance/core` | Case types, guards, engine, atomic interfaces, journal, and ingestion. |
-| `@affordance/pg` | Postgres domain bindings, framework metadata, and atomic execution. |
+| `@affordance/core` | Case types, guards, run/launch, journal, status, and ingestion. |
+| `@affordance/pg` | Postgres domain bindings, framework metadata, and conditional lease transitions. |
 | `@affordance/reference-app` | Group purchase with an app-owned HTTP interface, mock providers, and a React console. |
 | `@affordance/testkit` | Shared Postgres test setup. |
 

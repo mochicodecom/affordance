@@ -1,207 +1,93 @@
-# Domain storage and atomic execution
+# Domain storage and execution tracking
 
-`@affordance/core` owns definitions, validation, guard evaluation, and execution
-evidence. The application owns business records. An adapter assembles those
-records into Case State and provides exclusive, atomic execution.
+`EngineStorage` provides authoritative Case reads, journal observations, optional
+launch tracking, correlations and delivery bookkeeping. There is no framework
+domain transaction port. Handlers close over application services.
 
-Core has no SQL, Postgres, ORM, or database transaction types. Other adapters can
-use the same interfaces through their own database or ORM. The Postgres types in
-the examples below belong to `@affordance/pg` and the application.
-
-## Define domain operations
+## Bind reads
 
 ```ts
-import { actor, caseType, repositories, stepsOf } from '@affordance/core'
-import { z } from 'zod'
-
-const State = z.object({ approved: z.boolean() })
-interface Repos { approve(): Promise<void> }
-const approvalStep = stepsOf(State, actor<{ reviewer: boolean }>(), repositories<Repos>())
-const approval = caseType({
-  name: 'approval',
-  state: State,
-  steps: [approvalStep({
-    name: 'approve',
-    requires: { outstanding: state => !state.approved },
-    permits: { reviewer: (_state, ctx) => ctx.actor.reviewer },
-    handler: async ctx => { await ctx.repos.approve() },
-  })],
-})
-```
-
-The handler returns `Promise<void>`. It can inspect `ctx.state`, `ctx.actor`,
-`ctx.input`, and a scoped step's `ctx.scope`/`ctx.scopeKey`. Writes happen through
-`ctx.repos`. Mutating `ctx.state` does not save it. The engine reloads domain state
-after the handler and validates that result before committing.
-
-## Bind Postgres persistence
-
-Assume the application already owns `approvals(id text primary key, approved
-boolean not null)`:
-
-```ts
-import { bootstrap, createPgStorage } from '@affordance/pg'
-import { createEngine } from '@affordance/core'
-
-await bootstrap(pool)
 const storage = createPgStorage({ db: { pool } })
-const bound = storage.bindCase(approval, {
-  load: async (q, reference) => {
-    const { rows } = await q.query<{ approved: boolean }>(
-      'select approved from approvals where id = $1', [reference],
-    )
-    if (!rows[0]) throw new Error('approval does not exist')
-    return rows[0]
-  },
-  protect: async (tx, reference) => {
-    const { rows } = await tx.query(
-      'select id from approvals where id = $1 for update', [reference],
-    )
-    if (!rows[0]) throw new Error('approval does not exist')
-  },
-  repositories: (tx, reference) => ({
-    approve: async () => {
-      await tx.query('update approvals set approved = true where id = $1', [reference])
-    },
-  }),
+const binding = storage.bindCase(definition, {
+  load: (q, reference) => purchases(q).loadCaseState(reference),
 })
-const engine = createEngine({ storage, caseTypes: [bound] })
-const current = await engine.attachCase('approval', { reference: approvalId })
-await engine.execute(current.id, 'approve', { actor: { reviewer: true } })
+const engine = createEngine({ storage, caseTypes: [binding] })
 ```
 
-`bindCase` checks the repository context against the definition's required type.
-Bindings belong to one storage instance; the engine rejects a binding from a
-different instance. The adapter rejects duplicate type names.
+Postgres reads use short repeatable-read transactions. A loader must return the
+current domain projection deterministically. `attachCase` validates the current
+projection and stores its reference. The application may use
+`storage.attachCase(tx, binding, reference)` inside its own creation transaction.
+Framework transactions end before handler invocation. Applications own locks,
+transactions, external calls, idempotency and final business admission.
 
-`attachCase` validates the protected domain state and atomically creates case
-metadata. Reattaching the same `(case type, reference)` returns the existing
-case. The reference is an application record identity; it is not a second state
-copy. Missing domain records and unreadable state fail loudly.
+## Optional journal observations
 
-Create an application record and attach its case in one transaction when needed:
+`journal.observe(entry)` is required for `run` and `launch`, even when a particular
+handler returns void. Capability absence is detected before invocation. A handler
+returning State causes one `observed` entry; void causes none. Observations use the
+same validated Case schema on each side. They contain safe actor identity, Case,
+Step/scope, execution ID, before-state, diff, evaluation/observation/storage times.
+No raw request input is copied. The Case schema must exclude credentials and
+unrelated private fields.
 
-```ts
-import { withTransaction } from '@affordance/pg'
+Core bounds the entire asynchronous evidence attempt including schema validation,
+connection acquisition and persistence. Storage can finish late after timeout;
+this adapter does not cancel SQL. A partial unique index makes `observed` entries
+idempotent by execution ID. A late observation never finalizes a lease or rewrites
+status. Successful empty diffs still produce an entry. Missing observations never
+trigger replay. Journals are not a state source or atomic-commit proof.
 
-const current = await withTransaction({ pool }, async tx => {
-  await tx.query('insert into approvals (id, approved) values ($1, false)', [approvalId])
-  return storage.attachCase(tx, bound, approvalId)
-})
-```
+## Serialization contract
 
-Use the supplied `tx` directly. Calling `engine.attachCase` or opening another
-framework transaction from this callback would acquire another operation rather
-than join this transaction. Retained transaction handles reject queries after
-their callback finishes.
+Snapshot serialization preserves Date, Set, bigint, null, undefined and absent
+properties through `{ version: 1, json, meta? }`. Adapters encode/decode journal
+state, actor and input columns with core helpers. Diffs compare serialized
+documents including type metadata and are stored directly as RFC 6902 operations
+with RFC 6901 paths, starting at `/json` or `/meta`. Sets compare structural
+membership independently of insertion order; snapshots retain insertion order.
+Unsupported evidence values produce a failed disposition after known business
+success. Domain columns need not store serialization envelopes.
 
-## Concurrency contract
+Journal readers retain distinct record kinds, including `observed`; folding an
+observation yields `observed`, never atomic `completed`. Old reader shapes are not
+used to convert prior data. Current API responses do not claim committed state,
+sequence advancement or a domain commit timestamp.
 
-The Postgres execution adapter first locks the framework case row, then calls
-`protect`, then loads state. Protection must cover all facts used by guards and
-handlers, including related records. Every cooperating external writer must use
-the same domain protocol. For a purchase parent lock, this includes writers that
-insert, update, or delete buyers and wires. Locking a child alone is insufficient.
-Define a consistent order for operations involving several cases or parents.
+## LaunchPort
 
-Two executions on one case serialize, including executions with different scope
-keys. There is no durable claim, heartbeat, or automatic handler retry. Postgres
-waits on the row lock; the adapter does not promise FIFO scheduling. Other
-adapters must provide equivalent exclusion and atomicity or reject this contract.
+| Method | Required atomic behavior |
+| --- | --- |
+| claim | Create execution identity and exclusive Case ownership. Running/unresolved predecessors block. |
+| start | Conditional startup transition for an unexpired owned claim. |
+| release | Delete only a known-safe pre-start claim with the selected identity. |
+| complete | Check selected identity and unexpired running ownership; persist completion/journal disposition and release the block. |
+| fail | Record a safe unresolved reason without clearing ownership or overwriting settled status. |
+| get | Return durable status or null; recognize expiry without a worker. |
+| resolve | Require unresolved status, record attribution/reason/time, and clear only the selected ownership. |
 
-Ordinary reads use a short repeatable-read transaction so multiple repository
-queries observe one consistent snapshot. Application loaders should return
-collections in deterministic order. Listing pages case metadata newest first,
-then loads complete domain state through the same binding. It defaults to active
-cases, registered types, and 100 rows (maximum 1000). One unreadable case fails
-the page. Cursor filters cannot change between pages.
+Postgres stores ownership in `launched_executions`: a partial unique index on
+`case_id` includes running/unresolved records. Transitions lock the execution row
+and check the database clock after acquiring it. Expiry does not remove index
+membership. No transition executes domain code. The memory contract adapter uses
+the same state machine with a controllable clock.
 
-## Atomic interface
+A lost claim/start/finalization acknowledgment is uncertain. Lookup may reconcile
+it, but never invokes the handler. Expired/resolved callbacks cannot overwrite
+settled or newer status. A lease does not fence domain or provider writes.
 
-Adapters implement `EngineStorage` from `@affordance/core/storage`, including:
+## Schema and application transactions
 
-```ts
-interface AtomicCasePort<R> {
-  withCase<T>(
-    caseId: string,
-    executionId: string,
-    run: (session: AtomicCaseSession<R>) => Promise<T>,
-  ): Promise<T>
-}
-```
+Bootstrap installs fresh framework schema v6. It rejects prior beta schemas;
+there is no journal/lease migration, reset or domain-data conversion. Operators
+explicitly reset disposable framework data before adopting this beta.
 
-The session exposes `repos`, `loadCase`, and `persistCompletion`. The latter stages
-metadata, correlations, and evidence in the same operation; it does not commit
-independently. The adapter invokes the callback once and resolves only after a
-confirmed commit. A handler error, invalid resulting state, or failed evidence
-write rolls back the domain operation. All repositories must participate in this
-same atomicity; independent CRUD implementations cannot substitute for it.
+`withTransaction` is an application utility. It returns only after COMMIT and
+rejects retained transaction use after its callback. Unknown acknowledgment raises
+`CommitOutcomeUnknownError`; acknowledged rollback raises
+`TransactionRolledBackError`. Those errors retain application meaning through
+`run`. `registerCorrelation` accepts a query/transaction supplied by the app.
 
-Protected operations explicitly use Read Committed isolation so a load after a
-waited lock observes the newly committed domain rows. Ordinary aggregate reads
-use a short Repeatable Read, read-only transaction. See the
-[Postgres isolation rules](https://www.postgresql.org/docs/17/transaction-iso.html).
-
-## Unknown commit outcomes
-
-Lost COMMIT acknowledgments do not prove rollback. Affirmative Postgres
-constraint, serialization, and deadlock errors retain their SQLSTATE and report
-known rollback; callbacks are never automatically retried. The Postgres execution
-adapter throws `ExecutionIndeterminateError` with the case and execution IDs.
-It writes no false failure evidence and does not replay the handler. To determine
-what happened:
-
-```ts
-const outcome = await storage.reconcileExecution(error.caseId, error.executionId)
-// 'completed' or 'not-committed'; database unavailability still throws.
-```
-
-Reconciliation first locks the same case row, waiting for any original operation
-to finish, then checks completion evidence. Read the journal for that execution
-when it completed. A new attempt after confirmed non-commit reloads current state
-and reevaluates its guard. Request-level deduplication and external effect recovery
-remain the application's responsibility. `withTransaction` exposes
-`CommitOutcomeUnknownError` for application-owned transactions.
-If Postgres acknowledges `COMMIT` with a `ROLLBACK` command after a caught SQL
-error, `withTransaction` throws `TransactionRolledBackError` instead of returning
-the callback's result. Only a `COMMIT` acknowledgment reports success.
-The pool reuses a healthy connection after a confirmed commit or rollback,
-including ordinary guard refusals and validation errors. Failed cleanup or an
-uncertain commit causes the connection to be discarded.
-
-## Evidence and serialization
-
-A successful execution writes `started` and `completed` together with domain
-changes. `started` contains a copy of the state, actor, validated input, guard,
-and evaluation time taken before application code runs. `completed` contains a
-JSON Patch delta and dormancy. `startedAt` replaces the old claim timestamp.
-These are historical records, not a reconstruct-on-read state store. The engine
-journals committed operations; refused or rolled-back operations have no journal
-entries. The `failed` journal type is reserved for explicit, confirmed rollback
-diagnostics by an adapter.
-
-Snapshot serialization preserves Date, Set, bigint, null, undefined, and absent
-properties through the versioned `{ version: 1, json, meta? }` format. Adapters
-encode/decode journal state, actors, and inputs with core's serialization helpers.
-Deltas compare encoded documents and are stored directly. Unsupported values
-fail before completion commits. Domain storage decides how its own columns map
-to runtime state; it does not need to store the serialization envelope.
-
-`replayGuard(definition, startedEntry)` validates the historical snapshot and
-compares today's guard with the recorded evaluation. External edits are visible
-on the next case read but do not automatically create framework evidence or
-advance `seq`; that counter counts framework executions only.
-
-## External work and schema changes
-
-Network calls must run outside atomic handlers. Adopters can invoke short guarded
-operations before/after calls managed by their existing orchestration. Affordance
-does not provide an outbox, worker, cancellation manager, or long-running claim.
-Separate operations do not imply atomicity across an external API call. Ingestion
-still settles delivery bookkeeping separately from the case execution.
-
-This release is a breaking replacement. The Postgres adapter requires a fresh
-framework schema and never resets existing databases automatically. There is no
-JSONB current-state adapter, full-state-return handler, or `engine.migrate`.
-Applications manage their own domain schema/data migrations. See
-[domain evolution](migration.md).
+`deleteCase` deletes framework records, including launched status. It does not
+cancel live work or remove application domain records; reconcile active handlers
+before destructive administrative cleanup.

@@ -26,7 +26,6 @@ import type {
 } from '@affordance/core'
 import {
   AffordanceError,
-  ExecutionIndeterminateError,
   JOURNAL_ENTRY_KINDS,
   StepInputValidationError,
   StepNotAvailableError,
@@ -64,7 +63,7 @@ export type EnginePort = Pick<
   | 'affordances'
   | 'affordancesOf'
   | 'explain'
-  | 'execute'
+  | 'run'
   | 'journal'
   | 'ingest'
   | 'deadLetters'
@@ -130,7 +129,6 @@ const STATUS: Record<AffordanceErrorCode, number> = {
   'invalid-input': 422,
   'not-found': 404,
   'bad-request': 400,
-  'execution-failed': 500,
   'invalid-state': 500,
 }
 
@@ -146,14 +144,6 @@ const toErrorResponse = (
   error: unknown,
   visibility: Visibility,
 ): ApiResponse => {
-  if (error instanceof ExecutionIndeterminateError)
-    return json(
-      503,
-      toErrorPayload('execution-indeterminate', error.message, {
-        caseId: error.caseId,
-        executionId: error.executionId,
-      }),
-    )
   if (!(error instanceof AffordanceError)) throw error
   const status = STATUS[error.code]
 
@@ -488,7 +478,7 @@ export const createAffordanceApi = (options: ApiOptions): AffordanceApi => {
           scopeKey?: unknown
           input?: unknown
         }
-        const result = await options.engine.execute(
+        const result = await options.engine.run(
           params['caseId'] as string,
           params['step'] as string,
           {

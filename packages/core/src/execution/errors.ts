@@ -1,4 +1,4 @@
-import { AffordanceError, thrownMessage } from '../errors.js'
+import { AffordanceError } from '../errors.js'
 import type { ConditionResult, GuardEvaluation } from '../guards/index.js'
 import { describeUnmet, unmetConditions } from '../guards/index.js'
 
@@ -11,15 +11,15 @@ export const stepLabel = (stepName: string, scopeKey: string | null): string =>
   scopeKey === null ? `'${stepName}'` : `'${stepName}' (${scopeKey})`
 
 /**
- * The execution's transactional guard re-evaluation said no — the enforcement
+ * The execution's current Guard evaluation said no — the enforcement
  * moment. Guards advise; handlers enforce: an affordance computed
  * for a render is advice, and by the time the execute request arrives, state
  * may have moved (another Execution committed) or the definitions may have
  * (a deploy tightened the guard — definition drift is handled by the
  * same mechanism as state races).
  *
- * The unmet conditions carried here are the *current* ones, evaluated inside
- * the execution transaction, so a rejection is self-explaining: hand `unmet`
+ * The unmet conditions carried here are the *current* ones, evaluated before
+ * handler invocation, so a rejection is self-explaining: hand `unmet`
  * straight back to the caller.
  */
 export class StepNotAvailableError extends AffordanceError {
@@ -57,54 +57,5 @@ export class StepNotAvailableError extends AffordanceError {
     this.permitted = evaluation.permitted
     this.unmet = unmet
     this.evaluation = evaluation
-  }
-}
-
-/** A domain handler or its completion failed; the atomic operation is aborted. */
-export class StepExecutionError extends AffordanceError {
-  readonly caseId: string
-  readonly executionId: string
-  readonly stepName: string
-  readonly scopeKey: string | null
-  /** How many attempts ran before the Execution was given up on. */
-  readonly attempts: number
-
-  constructor(
-    caseId: string,
-    executionId: string,
-    stepName: string,
-    scopeKey: string | null,
-    attempts: number,
-    cause: unknown,
-  ) {
-    const reason = thrownMessage(cause)
-    super(
-      'execution-failed',
-      `step ${stepLabel(stepName, scopeKey)} failed on case ${caseId} after ${attempts} attempt${
-        attempts === 1 ? '' : 's'
-      }: ${reason}`,
-      { cause },
-    )
-    this.name = 'StepExecutionError'
-    this.caseId = caseId
-    this.executionId = executionId
-    this.stepName = stepName
-    this.scopeKey = scopeKey
-    this.attempts = attempts
-  }
-}
-
-/** The database may have committed; never classify this as a definite failure. */
-export class ExecutionIndeterminateError extends Error {
-  constructor(
-    readonly caseId: string,
-    readonly executionId: string,
-    options?: ErrorOptions,
-  ) {
-    super(
-      `execution ${executionId} on case ${caseId} has an unknown commit outcome; reconcile before retrying`,
-      options,
-    )
-    this.name = 'ExecutionIndeterminateError'
   }
 }

@@ -355,7 +355,7 @@ describe('the contract, through the root app', () => {
     })
     expect(response.status).toBe(201)
     const payload = (await response.json()) as any
-    expect(payload.contract).toBe('affordance/v1')
+    expect(payload.contract).toBe('affordance/v2')
     expect(payload.affordances.map((entry: any) => entry.step)).toContain(
       'accept-offer',
     )

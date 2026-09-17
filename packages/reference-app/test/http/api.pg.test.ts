@@ -57,7 +57,7 @@ describe('the affordance payload', () => {
 
     expect(response.status).toBe(201)
     const payload = response.body as AffordancePayload
-    expect(payload.contract).toBe('affordance/v1')
+    expect(payload.contract).toBe('affordance/v2')
     expect(payload.case).toMatchObject({ type: purchase.name, endedAt: null })
     expect(payload.affordances.map((a) => a.step)).toEqual([
       'confirm-split',
@@ -198,8 +198,8 @@ describe('who sees what', () => {
     const entries = (
       audit.body as { entries: { entry: string; state?: unknown }[] }
     ).entries
-    const started = entries.find((entry) => entry.entry === 'started')
-    expect(JSON.stringify(audit.body)).toContain('isThisBuyer')
+    const started = entries.find((entry) => entry.entry === 'observed')
+    expect(JSON.stringify(audit.body)).not.toContain('isThisBuyer')
     expect(started?.state).toBeDefined()
   })
 
@@ -244,8 +244,7 @@ describe('executing a step', () => {
     expect(payload.execution).toMatchObject({
       step: 'sign-agreement',
       scopeKey: 'buyer_a',
-      attempts: 1,
-      seq: 1,
+      journal: { status: 'recorded' },
     })
     expect(payload.links.affordances.href).toBe(
       `/api/cases/${caseId}/affordances`,
@@ -264,7 +263,7 @@ describe('executing a step', () => {
 
     expect(response.status).toBe(409)
     expect(response.body).toMatchObject({
-      contract: 'affordance/v1',
+      contract: 'affordance/v2',
       error: 'step-not-available',
       possible: false,
       permitted: true,
@@ -379,11 +378,11 @@ describe('the journal and ingestion endpoints', () => {
     const track = await call({
       method: 'GET',
       path: `/cases/${caseId}/journal`,
-      query: { scopeKey: 'buyer_a', entry: 'completed' },
+      query: { scopeKey: 'buyer_a', entry: 'observed' },
       actor: organizer,
     })
 
-    expect((all.body as { entries: unknown[] }).entries.length).toBe(2)
+    expect((all.body as { entries: unknown[] }).entries.length).toBe(1)
     expect(
       (track.body as { entries: { step: string }[] }).entries.map(
         (e) => e.step,

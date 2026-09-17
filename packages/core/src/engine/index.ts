@@ -6,7 +6,7 @@
  * explainable (CONTEXT.md; spec §Core model). This module is the
  * framework's public face: the pure computation (`computeAffordances`,
  * `computeExplanation`) and the store-bound engine (`createEngine` →
- * `affordances` / `explain` / `execute` / `journal`). Nothing in the
+ * `affordances` / `explain` / `run` / `launch` / `journal`). Nothing in the
  * computation ever invokes a handler — that is `../execution`'s job alone.
  */
 

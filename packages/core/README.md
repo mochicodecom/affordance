@@ -1,61 +1,86 @@
 # @affordance/core
 
-Compute what a case can do now from application-owned facts and actor permissions.
-Core defines schemas, guards, scoped steps, atomic domain execution, and historical
-evidence. It does not depend on a database or ORM.
+Compute available work from current domain facts and actor permissions. A Step's
+handler owns persistence, transactions, final business admission and external
+calls. Affordance validates state/input, evaluates Guards and invokes it once.
 
 ```ts
-import { actor, caseType, repositories, stepsOf } from '@affordance/core'
+import { actor, caseType, createBackgroundRuntime, createEngine, stepsOf } from '@affordance/core'
 import { z } from 'zod'
 
-const State = z.object({ approved: z.boolean() })
-interface Repos { approve(): Promise<void> }
-const approvalStep = stepsOf(State, actor<{ reviewer: boolean }>(), repositories<Repos>())
-const approval = caseType({
-  name: 'approval',
-  state: State,
-  steps: [approvalStep({
-    name: 'approve',
-    requires: { outstanding: state => !state.approved },
-    permits: { reviewer: (_state, ctx) => ctx.actor.reviewer },
-    handler: async ctx => { await ctx.repos.approve() },
-  })],
+const State = z.object({ ein: z.string().nullable() })
+const step = stepsOf(State, actor<{ id: string }>())
+const definition = caseType({
+  name: 'deal', state: State,
+  steps: [
+    step({
+      name: 'record-ein', input: z.object({ ein: z.string() }),
+      handler: async ({ reference, actor, input, state }) => {
+        const saved = await deals.recordEin(reference, actor, input)
+        return { ...state, ein: saved.ein } // Already persisted; evidence only.
+      },
+    }),
+    step({
+      name: 'notify',
+      handler: async ({ reference, executionId }) => {
+        await notifications.send(reference, { executionId })
+        // No return: success without a diff journal.
+      },
+    }),
+  ],
 })
+
+// Bind an authoritative loader using your adapter, e.g. storage.bindCase(definition, { load }).
+const runtime = createBackgroundRuntime()
+const engine = createEngine({
+  storage, caseTypes: [binding],
+  operations: { journalTimeoutMs: 1000 },
+  launch: { runtime, leaseMs: 60_000 },
+})
+const result = await engine.run(caseId, 'record-ein', { actor, input: { ein: '12-3456789' } })
+// result.journal.status: 'skipped' | 'recorded' | 'failed'
+const { executionId } = await engine.launch(caseId, 'notify', { actor })
+const execution = await engine.getExecution(executionId)
+// running | completed | unresolved | resolved; null for unknown IDs and ordinary runs.
+await runtime.drain() // Stop new launches and await owned tasks during application shutdown.
 ```
 
-Bind the definition to your adapter's state loader, concurrency protection, and
-repositories before constructing an engine. `@affordance/pg` supplies a Postgres
-implementation. Other adapters implement `EngineStorage` and `AtomicCasePort`
-from `@affordance/core/storage`.
+`run` waits for handler completion and a bounded optional journal attempt. `launch`
+returns after handler entry while the runtime owns the remaining work. Both use
+the same `Promise<State | void>` contract and handler context. There are no injected
+repositories, transaction callbacks, or completion wrappers. `undefined` skips
+the journal; a valid State produces an `observed` diff, even if unchanged.
+Returned State never becomes current Case State. Subsequent reads use the binding.
 
-`engine.attachCase(type, { reference })` associates framework metadata with an
-existing domain record. Reads assemble and validate current domain state.
-`engine.execute` reevaluates guards and runs one short atomic domain operation.
-Handlers return no state document. Their domain writes, journal evidence,
-correlations, sequence, and dormancy commit together.
+A thrown handler error propagates unchanged from `run`; committed effects may
+already exist. A launched handler error appears as unresolved status. Invalid
+evidence and journal failure do not reverse successful handler completion or
+retry business code. The journal timeout includes adapter acquisition wait.
+An already-started write may finish late under the original execution ID.
 
-External API orchestration belongs to the adopter. Network calls run outside
-atomic handlers. Executions are not automatically retried, and uncertain commits
-are reported explicitly rather than falsely recorded as failures.
+The supplied runtime is for a long-lived Node process and keeps outstanding tasks
+alive until they settle. It cannot survive process death or a serverless host
+freezing after a request. Such hosts need an independently owned runtime with a
+real handler-entry acknowledgment. A queue acceptance alone is insufficient.
+There is no replay, heartbeat, automatic retry, compensation or recovery worker.
 
-See [storage and binding examples](https://github.com/mochicodecom/affordance/blob/main/docs/storage.md)
-and [architecture](https://github.com/mochicodecom/affordance/blob/main/docs/architecture.md).
+Launch ownership excludes other participating launches for the same Case.
+Expiration leaves a block until application/operator reconciliation:
 
-This is a breaking replacement of the JSONB current-state and full-state handler
-APIs. Existing framework schemas are unsupported and never reset automatically.
+```ts
+await engine.resolveExecution(executionId, { actor, reason: 'Reconciled with provider' })
+```
 
-For operations that already own their transactions, use
-`engine.executeNonAtomic(caseId, stepName, { actor, input, scopeKey, repos })`.
-It loads and validates current state, resolves the registered step, validates
-input and evaluates its guard, then invokes its handler with those operations.
-It does not acquire an atomic case session, retry the handler, reload state after
-success, or write journal evidence, sequence, correlations or dormancy. Guards
-are a fresh observation, not a lock; the operation retains final admission and
-concurrency control. Handler errors propagate unchanged and may follow committed
-effects. `correlate`, `end` and `reopen` are unsupported in this mode.
+Resolution is not cancellation. Leases do not fence domain or provider writes;
+an old handler can still write after expiry or resolution. Ordinary runs and
+unrelated writers do not participate. The host must authorize status and resolution.
 
-The result identifies the completed execution and its guard evaluation; it
-contains no committed-state delta. An application can write a completion receipt
-separately. Such a receipt can be missing after a crash or persistence failure;
-recording failure must not fail or retry a known successful operation. The
-existing `execute` method and system ingestion keep their atomic guarantees.
+Safe actor attribution defaults to a string actor or string `actor.id`, otherwise
+null. Configure `operations.actorIdentity` for another string identity. Request
+input and authentication objects are not journaled by this pipeline. Define Case
+State as the intended journal projection; schema validation applies before and
+after. Keep credentials and unrelated data out of that schema.
+
+This breaking beta removes `execute`, `executeNonAtomic`, transaction-bound
+handler repositories and the atomic adapter port. Framework journal/lease data
+is not migrated. See [architecture](https://github.com/mochicodecom/affordance/blob/main/docs/architecture.md).

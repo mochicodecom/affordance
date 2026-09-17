@@ -67,8 +67,8 @@ export interface GuardReplay {
  * Async schemas make this function asynchronous. Schema rejection is reported
  * as unaddressable; a validator that throws still propagates its error.
  */
-export const replayGuard = async <TRepos>(
-  definition: AnyCaseType<TRepos>,
+export const replayGuard = async (
+  definition: AnyCaseType,
   entry: StartedJournalEntry,
 ): Promise<GuardReplay> => {
   const identity = {

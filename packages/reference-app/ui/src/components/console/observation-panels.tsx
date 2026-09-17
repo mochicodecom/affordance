@@ -84,14 +84,10 @@ export function HistoryPanel({
             // Buyer actors show by name too — the actor id IS the scope key
             // for a buyer's own acts, so the same resolver applies.
             const actorId =
-              entry.actor &&
-              typeof entry.actor === 'object' &&
-              'id' in entry.actor
-                ? scopeLabel(state, String((entry.actor as { id: unknown }).id))
+              typeof entry.actor === 'string'
+                ? scopeLabel(state, entry.actor)
                 : JSON.stringify(entry.actor)
-            // The journal records each execution twice — started, then
-            // completed. Unlabeled, the pair reads as a duplicate; labeled,
-            // it reads as what it is.
+            // An observation is journal evidence, independent from launch status.
             const kind = typeof entry.entry === 'string' ? entry.entry : ''
             return (
               <details
@@ -114,10 +110,10 @@ export function HistoryPanel({
                     {kind && (
                       <Text
                         size="xs"
-                        c={kind === 'completed' ? undefined : 'dimmed'}
+                        c={kind === 'observed' ? undefined : 'dimmed'}
                         px={6}
                         bg={
-                          kind === 'completed'
+                          kind === 'observed'
                             ? 'var(--mantine-color-gray-light)'
                             : undefined
                         }

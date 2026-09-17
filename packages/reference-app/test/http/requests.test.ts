@@ -48,7 +48,7 @@ describe('malformed query parameters are refused, not crashed on', () => {
     const response = await get(path, query)
     expect(response.status).toBe(400)
     expect(response.body).toMatchObject({
-      contract: 'affordance/v1',
+      contract: 'affordance/v2',
       error: 'bad-request',
     })
     const named = Object.keys(query)[0]!

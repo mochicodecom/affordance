@@ -12,10 +12,10 @@
  *    step) through the registry the initiating handler wrote.
  * 3. **Execute.** Through the ordinary load → guard → domain operation → evidence, with the
  *    external system as the journaled actor. Ingestion has no privileged
- *    path: the guard still decides, transactionally.
+ *    path: the handler owns final business admission.
  *
  * What is *not* allowed is a quiet drop. An event nothing can route, an event
- * whose step the guard refuses, or whose operation rolls back — each lands in
+ * whose step the guard refuses, or whose handler reports an error — each lands in
  * the same table with a status and a reason, which is the dead-letter
  * surface. "The webhook definitely arrived, so why is the case still waiting"
  * is a question this table answers without anyone reading a log file.
@@ -23,13 +23,9 @@
 
 import { createHash } from 'node:crypto'
 import type { AffordanceErrorCode } from '../errors.js'
-import { isAffordanceError } from '../errors.js'
-import type {
-  ExecutionEnvironment,
-  ExecutionResult,
-  SystemSettled,
-} from '../execution/index.js'
-import { runAsSystem } from '../execution/index.js'
+import { isAffordanceError, toError } from '../errors.js'
+import type { ExecutionEnvironment } from '../execution/environment.js'
+import { type RunResult, runStep } from '../execution/run.js'
 import type { DeliveryRecord } from '../storage.js'
 import type { Correlation } from './correlation.js'
 
@@ -71,7 +67,11 @@ export type IngestionStatus = 'executed' | 'duplicate' | 'dead-lettered'
  * not re-derive the kind of a Refusal — it projects the code the error
  * carries, so a new refusal class can never misroute here.
  */
-export type DeadLetterReason = 'unrouted' | 'no-step' | AffordanceErrorCode
+export type DeadLetterReason =
+  | 'unrouted'
+  | 'no-step'
+  | 'execution-failed'
+  | AffordanceErrorCode
 
 /**
  * Whether a provider redelivery of the same event deserves another attempt.
@@ -92,7 +92,7 @@ export const REOPENS_ON_REDELIVERY: Record<DeadLetterReason, boolean> = {
   'invalid-input': false,
   'not-found': false,
   'bad-request': false,
-  'execution-failed': true,
+  'execution-failed': false,
   'invalid-state': false,
 }
 
@@ -110,7 +110,7 @@ export interface IngestionResult {
   /** Where it routed, when it routed. */
   readonly correlation: Correlation | null
   /** The Execution it produced, on `executed`. */
-  readonly execution: ExecutionResult | null
+  readonly execution: RunResult | null
   /** Why it is in the dead-letter surface, on `dead-lettered`. */
   readonly reason: DeadLetterReason | null
   /** Human-readable detail: the unmet conditions, the failure message. */
@@ -314,23 +314,34 @@ export const ingest = async (
     })
   }
 
-  const ran = await runAsSystem(env, correlation.caseId, stepName, {
-    actor: env.ingestion.actor(event),
-    ...(correlation.scopeKey !== null && { scopeKey: correlation.scopeKey }),
-    ...(event.payload !== undefined && { input: event.payload }),
-  })
-  if (ran.outcome === 'committed') {
-    await env.storage.deliveries.settle(row.id, {
-      status: 'executed',
-      caseId: correlation.caseId,
-      scopeKey: correlation.scopeKey,
-      step: stepName,
-      executionId: ran.result.executionId,
-    })
-    return result(row, 'executed', { correlation, execution: ran.result })
+  let execution: RunResult
+  try {
+    execution = await runStep(
+      env,
+      correlation.caseId,
+      stepName,
+      {
+        actor: env.ingestion.actor(event),
+        ...(correlation.scopeKey !== null && {
+          scopeKey: correlation.scopeKey,
+        }),
+        ...(event.payload !== undefined && { input: event.payload }),
+      },
+      env.operations ?? {},
+    )
+  } catch (cause) {
+    const error = toError(cause)
+    const [reason, detail] = classifyDeadLetter({ error })
+    return deadLetter({ correlation, step: stepName, reason, detail })
   }
-  const [reason, detail] = classifyDeadLetter(ran)
-  return deadLetter({ correlation, step: stepName, reason, detail })
+  await env.storage.deliveries.settle(row.id, {
+    status: 'executed',
+    caseId: correlation.caseId,
+    scopeKey: correlation.scopeKey,
+    step: stepName,
+    executionId: execution.executionId,
+  })
+  return result(row, 'executed', { correlation, execution })
 }
 
 /**
@@ -343,9 +354,9 @@ export const ingest = async (
  * Refusal; it lands as `execution-failed` so the event is kept, never
  * silently dropped, with the crash's own words as the detail.
  */
-export const classifyDeadLetter = (
-  ran: SystemSettled,
-): [DeadLetterReason, string] =>
+export const classifyDeadLetter = (ran: {
+  error: Error
+}): [DeadLetterReason, string] =>
   isAffordanceError(ran.error)
     ? [ran.error.code, ran.error.message]
     : ['execution-failed', ran.error.message]

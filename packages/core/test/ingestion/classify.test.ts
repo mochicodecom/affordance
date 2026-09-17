@@ -7,8 +7,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { AffordanceError, type AffordanceErrorCode } from '../../src/errors.js'
-import { settleSystemRun } from '../../src/execution/index.js'
+import {
+  AffordanceError,
+  type AffordanceErrorCode,
+  toError,
+} from '../../src/errors.js'
 import {
   classifyDeadLetter,
   type DeadLetterReason,
@@ -17,7 +20,7 @@ import {
 
 /** What ingestion actually does with a throw: settle it, then project it. */
 const classify = (error: unknown): [DeadLetterReason, string] =>
-  classifyDeadLetter(settleSystemRun(error))
+  classifyDeadLetter({ error: toError(error) })
 
 const CODES: readonly AffordanceErrorCode[] = [
   'step-not-available',
@@ -25,7 +28,6 @@ const CODES: readonly AffordanceErrorCode[] = [
   'invalid-input',
   'not-found',
   'bad-request',
-  'execution-failed',
   'invalid-state',
 ]
 
@@ -50,12 +52,12 @@ describe('classifyDeadLetter', () => {
 })
 
 describe('REOPENS_ON_REDELIVERY', () => {
-  it('reopens exactly the outcomes another delivery could cure', () => {
+  it('never automatically replays operations that may have committed effects', () => {
     const reopenable = (
       Object.keys(REOPENS_ON_REDELIVERY) as DeadLetterReason[]
     )
       .filter((reason) => REOPENS_ON_REDELIVERY[reason])
       .sort()
-    expect(reopenable).toEqual(['execution-failed'])
+    expect(reopenable).toEqual([])
   })
 })

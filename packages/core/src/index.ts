@@ -31,12 +31,11 @@ export { createEngine, UnknownCaseTypeError } from './engine/index.js'
 export type { AffordanceErrorCode } from './errors.js'
 // ── The error taxonomy: every deliberate refusal, one closed code set ──────
 export { AffordanceError, isAffordanceError, REFUSAL_CODES } from './errors.js'
-export { ExecutionIndeterminateError } from './execution/errors.js'
+export type { BackgroundRuntime } from './execution/background.js'
+export { createBackgroundRuntime } from './execution/background.js'
 export type {
   CompletedEntryInput,
-  ExecuteOptions,
   ExecutionRecord,
-  ExecutionResult,
   ExecutionStatus,
   FailureEntryInput,
   GuardReplay,
@@ -46,6 +45,7 @@ export type {
   JournalError,
   JournalFilter,
   PatchOp,
+  RunOptions,
   StartedEntryInput,
   StartedJournalEntry,
   StateDelta,
@@ -57,15 +57,33 @@ export {
   isStartedEntry,
   jsonEqual,
   replayGuard,
-  StepExecutionError,
   StepNotAvailableError,
   stepLabel,
 } from './execution/index.js'
+export type { ObservedEntryInput } from './execution/journal.js'
 export { JOURNAL_ENTRY_KINDS } from './execution/journal.js'
 export type {
-  ExecuteNonAtomicOptions,
-  NonAtomicExecutionResult,
-} from './execution/non-atomic.js'
+  LaunchConfiguration,
+  LaunchResult,
+  ResolveExecutionOptions,
+} from './execution/launch.js'
+export type {
+  LaunchClaim,
+  LaunchedExecution,
+  LaunchPort,
+  LaunchStatus,
+  UnresolvedReason,
+} from './execution/launch-port.js'
+export {
+  ExecutionNotResolvableError,
+  LaunchBlockedError,
+  LaunchUnresolvedError,
+} from './execution/launch-port.js'
+export type {
+  JournalDisposition,
+  RunConfiguration,
+  RunResult,
+} from './execution/run.js'
 export type {
   AnyOfConditionResult,
   Condition,
@@ -107,7 +125,6 @@ export type {
   CaseTypeOptions,
   CorrelationRequest,
   HandlerContext,
-  RepositoriesMarker,
   ScopeDeclaration,
   ScopedConditionContext,
   ScopedHandlerContext,
@@ -124,7 +141,6 @@ export type {
 export {
   actor,
   caseType,
-  repositories,
   SCOPE_FAILURE_CONDITION,
   ScopeKeyError,
   StepInputValidationError,

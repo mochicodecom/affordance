@@ -1,6 +1,6 @@
 # Affordance
 
-Updated: 2026-09-13
+Updated: 2026-09-17
 
 A framework for long-lived business cases whose available work is computed from
 current state and actor permissions. For examples, read the
@@ -69,23 +69,34 @@ A step's domain operation, which observes current case state and changes busines
 _Avoid_: task body
 
 **Execution**:
-One run of a step on a case. Atomic execution records domain effects and journal
-evidence together; non-atomic execution delegates transactions to the operation
-and does not require a journal record.
+One invocation of a Step on a Case, with application-owned business effects and
+optional recorded evidence.
 _Avoid_: invocation
 
 **Journal**:
-The append-only record of a case's executions and their evidence.
+The append-only record of a Case's execution observations, independent from
+background execution status.
 _Avoid_: history, event log, audit log
 
 **Delta**:
-The change in case state committed by one execution.
+The observed difference between the starting Case State and the after-state
+reported by a successful handler.
 _Avoid_: changeset, state diff
 
 **Refusal**:
 A framework-declared rejection with a code identifying its kind. An unrelated
 bug or infrastructure failure is not a refusal.
 _Avoid_: exception, failure
+
+**Launched execution**:
+An execution whose background lifetime and outcome are tracked under exclusive
+Case ownership until completion or explicit reconciliation.
+_Avoid_: queued job, workflow instance
+
+**Resolution**:
+The explicit reconciliation record that clears an unresolved execution's
+ownership without asserting its business outcome or cancelling its effects.
+_Avoid_: cancellation, rollback, retry
 
 **System runner**:
 The execution entry point used by ingestion to receive per-case

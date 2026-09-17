@@ -1,3 +1,5 @@
+import { purchaseOperations } from '../src/operation.js'
+import { createMockServices } from '../src/services.js'
 /**
  * The pin on the console's shadow tables.
  *
@@ -22,7 +24,18 @@ import {
   WORLD_LABELS,
 } from '../ui/src/lib/house-purchase-tables.js'
 
-const definition = createPurchaseDefinition()
+const definition = createPurchaseDefinition(
+  purchaseOperations(
+    {
+      client: {
+        query: async () => {
+          throw new Error('not called')
+        },
+      },
+    },
+    createMockServices(),
+  ),
+)
 
 const stepNames = new Set(definition.steps.map((step) => step.name))
 

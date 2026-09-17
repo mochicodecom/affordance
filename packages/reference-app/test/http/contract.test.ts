@@ -14,10 +14,10 @@
 import type {
   CaseAffordances,
   DeadLetter,
-  ExecutionResult,
   GuardEvaluation,
   IngestionResult,
   JournalEntry,
+  RunResult,
 } from '@affordance/core'
 import { describe, expect, it } from 'vitest'
 import type { ContractContext } from '../../src/http/contract.js'
@@ -59,21 +59,12 @@ const evaluation: GuardEvaluation = {
   ],
 }
 
-const execution: ExecutionResult = {
+const execution: RunResult = {
   executionId: 'exec:9a2c',
   caseId: 'case:5f1b',
-  caseTypeName: 'house-purchase',
   step: 'record-commitment',
   scopeKey: 'buyer:7',
-  attempts: 1,
-  guard: evaluation,
-  state: { secret: 'the whole case document' },
-  delta: [{ op: 'add', path: '/json/committed', value: true }],
-  seq: 4,
-  dormancy: null,
-  endedAt: null,
-  startedAt: '2026-08-05T00:00:01.000Z',
-  committedAt: '2026-08-05T00:00:02.000Z',
+  journal: { status: 'recorded' },
 }
 
 describe('the execution payload', () => {
@@ -82,16 +73,9 @@ describe('the execution payload', () => {
     expect(payload.execution).toEqual({
       executionId: 'exec:9a2c',
       caseId: 'case:5f1b',
-      caseType: 'house-purchase',
       step: 'record-commitment',
       scopeKey: 'buyer:7',
-      attempts: 1,
-      seq: 4,
-      delta: [{ op: 'add', path: '/json/committed', value: true }],
-      dormancy: null,
-      endedAt: null,
-      startedAt: '2026-08-05T00:00:01.000Z',
-      committedAt: '2026-08-05T00:00:02.000Z',
+      journal: { status: 'recorded' },
     })
     expect(JSON.stringify(payload)).not.toContain('the whole case document')
     expect(JSON.stringify(payload)).not.toContain('isThisBuyer')
@@ -99,7 +83,7 @@ describe('the execution payload', () => {
 
   it('keeps typed ids literal in hrefs and nulls an absent scopeKey', () => {
     const { scopeKey: _ignored, ...unscopedRest } = execution
-    const unscoped: ExecutionResult = unscopedRest
+    const unscoped: RunResult = unscopedRest
     const payload = toExecutionPayload(unscoped, context('permitted'))
     expect(payload.execution.scopeKey).toBeNull()
     expect(payload.links.affordances.href).toBe(
@@ -262,7 +246,7 @@ describe('the ingestion payload', () => {
     const payload = toIngestionPayload(result)
     expect(payload.ingestion.execution).toMatchObject({
       executionId: 'exec:9a2c',
-      seq: 4,
+      journal: { status: 'recorded' },
     })
     expect(payload.ingestion.correlation).toEqual({
       system: 'escrow',
@@ -299,7 +283,7 @@ describe('the dead-letter payload', () => {
       receivedAt: '2026-08-05T00:00:04.000Z',
     }
     expect(toDeadLettersPayload([letter])).toEqual({
-      contract: 'affordance/v1',
+      contract: 'affordance/v2',
       deadLetters: [letter],
     })
   })

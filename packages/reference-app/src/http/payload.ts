@@ -12,7 +12,7 @@ export type { DeadLetterReason, IngestionStatus } from '@affordance/core'
 export type RefusalCode = AffordanceErrorCode
 export type JournalEntryKind = JournalEntryType
 
-export const CONTRACT = 'affordance/v1'
+export const CONTRACT = 'affordance/v2'
 
 /**
  * How much a caller is told about steps they cannot take.
@@ -123,16 +123,9 @@ export type DormancyPayload = 'ended' | 'reopened'
 export interface ExecutionDescriptor {
   readonly executionId: string
   readonly caseId: string
-  readonly caseType: string
   readonly step: string
   readonly scopeKey: string | null
-  readonly attempts: number
-  readonly seq: number
-  readonly delta: StateDeltaPayload
-  readonly dormancy: DormancyPayload | null
-  readonly endedAt: string | null
-  readonly startedAt: string
-  readonly committedAt: string
+  readonly journal: import('@affordance/core').JournalDisposition
 }
 
 /** The payload of a committed Execution — the response of `POST /cases/{id}/steps/{step}`. */
@@ -211,6 +204,7 @@ export interface JournalEntryPayload {
   readonly dormancy: DormancyPayload | null
   /** The failure, on optional `failed` diagnostic entries. */
   readonly error: JournalErrorPayload | null
+  readonly observedAt?: string | null
   readonly recordedAt: string
 }
 

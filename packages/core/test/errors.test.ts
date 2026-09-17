@@ -16,7 +16,6 @@ import {
   type GuardEvaluation,
   isAffordanceError,
   ScopeKeyError,
-  StepExecutionError,
   StepInputValidationError,
   StepNotAvailableError,
   UnknownCaseTypeError,
@@ -45,11 +44,6 @@ const taxonomy: readonly [string, AffordanceError, AffordanceErrorCode][] = [
     'StepNotAvailableError',
     new StepNotAvailableError('c1', 'close', null, evaluation),
     'step-not-available',
-  ],
-  [
-    'StepExecutionError',
-    new StepExecutionError('c1', 'e1', 'close', null, 3, new Error('boom')),
-    'execution-failed',
   ],
   [
     'StepInputValidationError',
@@ -107,7 +101,6 @@ describe('the error taxonomy', () => {
       'invalid-input',
       'not-found',
       'bad-request',
-      'execution-failed',
       'invalid-state',
     ]
     expect(new Set(taxonomy.map(([, , code]) => code))).toEqual(new Set(codes))
@@ -122,7 +115,7 @@ describe('the error taxonomy', () => {
   it('keeps `cause` intact where a class passes one through', () => {
     const boom = new Error('boom')
     expect(
-      new StepExecutionError('c1', 'e1', 'close', null, 3, boom).cause,
+      new AffordanceError('bad-request', 'refused', { cause: boom }).cause,
     ).toBe(boom)
   })
 })
