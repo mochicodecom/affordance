@@ -133,7 +133,7 @@ It does not lock cooperating writers. The operation owns admission, transactions
 external calls and its existing retry behavior. Core invokes the handler once
 and propagates its error unchanged, including when earlier effects committed.
 
-After handler success, core returns the invocation identity and pre-operation
+After handler success, core returns the execution identity and pre-operation
 guard evaluation. It performs no second load or persistence that could turn
 success into failure. This result makes no state-delta, sequence or atomic-commit
 claim. Correlation and dormancy helpers are unsupported; adopters manage that

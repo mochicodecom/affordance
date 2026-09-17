@@ -54,7 +54,7 @@ are a fresh observation, not a lock; the operation retains final admission and
 concurrency control. Handler errors propagate unchanged and may follow committed
 effects. `correlate`, `end` and `reopen` are unsupported in this mode.
 
-The result identifies the completed invocation and its guard evaluation; it
+The result identifies the completed execution and its guard evaluation; it
 contains no committed-state delta. An application can write a completion receipt
 separately. Such a receipt can be missing after a crash or persistence failure;
 recording failure must not fail or retry a known successful operation. The
